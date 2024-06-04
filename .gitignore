@@ -1,0 +1,6 @@
+.pio
+.vscode
+
+credentials.h
+credentials.private.h
+/backup
