@@ -15,14 +15,14 @@ class JsonStatus {
     if (stepperX) {
       JsonObject x = doc["x"].to<JsonObject>();
       x["pos"] = stepperX->getCurrentPosition();
-      // x["speed"] = stepperX->getCurrentSpeedInMilliHz(false);
+      x["speed"] = stepperX->getCurrentSpeedInMilliHz(false);
       x["running"] = stepperX->isRunning();
     }
 
     if (stepperY) {
       JsonObject y = doc["y"].to<JsonObject>();
       y["pos"] = stepperY->getCurrentPosition();
-      // y["speed"] = stepperY->getCurrentSpeedInMilliHz(false);
+      y["speed"] = stepperY->getCurrentSpeedInMilliHz(false);
       y["running"] = stepperY->isRunning();
     }
 
