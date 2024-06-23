@@ -90,10 +90,15 @@ unsigned long displayLastUpdate = 0;
 class StateTimer : public IntervalTimer {
   virtual void onTimer() {
     String tmp;
-    JsonStatus::convert(stepperX, stepperY, camera, tmp);
-    serialAndTelnet.print("[Status] ");
+    JsonStatus::convert(stepperX, stepperY, tmp);
+    serialAndTelnet.print("[Status] Actor:");
     serialAndTelnet.println(tmp);
-    mqtt.publish((deviceName + "/status").c_str(), tmp.c_str());
+    mqtt.publish((deviceName + "/actor").c_str(), tmp.c_str());
+
+    JsonStatus::convert(camera, tmp);
+    serialAndTelnet.print("[Status] Camera:");
+    serialAndTelnet.println(tmp);
+    mqtt.publish((deviceName + "/camera").c_str(), tmp.c_str());
   }
 };
 StateTimer stateTimer;
@@ -137,7 +142,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
           if (stepperX) {
             if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
               isRunningX = stepperX->move(cmd.x) == MOVE_OK;
-              serialAndTelnet.println("[Stepper] MoveX");
+              serialAndTelnet.print("[Stepper] MoveX (1): ");
+              serialAndTelnet.println(isRunningX);
               stateTimer.forceTrigger();
             }
           }
@@ -147,9 +153,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
           if (stepperY) {
             if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
               isRunningY = stepperY->move(cmd.y) == MOVE_OK;
-              serialAndTelnet.println("[Stepper] MoveY");
+              serialAndTelnet.print("[Stepper] MoveY (1): ");
+              serialAndTelnet.println(isRunningY);
               stateTimer.forceTrigger();
-              isRunningY = true;
             }
           }
           break;
@@ -158,14 +164,16 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
           if (stepperX) {
             if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
               isRunningX = stepperX->move(cmd.x) == MOVE_OK;
-              serialAndTelnet.println("[Stepper] MoveX");
+              serialAndTelnet.print("[Stepper] MoveX (2): ");
+              serialAndTelnet.println(isRunningX);
               stateTimer.forceTrigger();
             }
           }
           if (stepperY) {
             if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
               isRunningY = stepperY->move(cmd.y) == MOVE_OK;
-              serialAndTelnet.println("[Stepper] MoveY");
+              serialAndTelnet.print("[Stepper] MoveY (2): ");
+              serialAndTelnet.println(isRunningY);
               stateTimer.forceTrigger();
             }
           }
