@@ -690,7 +690,8 @@ class ESPAsync_WiFiManager_Lite
 
       if (LOAD_DEFAULT_CONFIG_DATA)
       {
-        ESP_WML_LOGDEBUG(F("======= Start Default Config Data ======="));
+        // ESP_WML_LOGDEBUG(F("======= Start Default Config Data ======="));
+        Serial.println("[WiFI] ##### Start Default Config Data ");
         displayConfigData(defaultConfig);
       }
 
@@ -1465,16 +1466,17 @@ class ESPAsync_WiFiManager_Lite
 
     void displayConfigData(const ESP_WM_LITE_Configuration& configData)
     {
-      ESP_WML_LOGERROR5(F("Hdr="),   configData.header, F(",SSID="), configData.WiFi_Creds[0].wifi_ssid,
+      ESP_WML_LOGINFO5(F("Hdr="),   configData.header, F(",SSID="), configData.WiFi_Creds[0].wifi_ssid,
                         F(",PW="),   configData.WiFi_Creds[0].wifi_pw);
-      ESP_WML_LOGERROR3(F("SSID1="), configData.WiFi_Creds[1].wifi_ssid, F(",PW1="),  configData.WiFi_Creds[1].wifi_pw);
-      ESP_WML_LOGERROR1(F("BName="), configData.board_name);
+      ESP_WML_LOGINFO3(F("SSID1="), configData.WiFi_Creds[1].wifi_ssid, F(",PW1="),  configData.WiFi_Creds[1].wifi_pw);
+      ESP_WML_LOGINFO1(F("BName="), configData.board_name);
 
 #if USE_DYNAMIC_PARAMETERS
 
+      Serial.println("[WML] Dynamic data:");
       for (uint16_t i = 0; i < NUM_MENU_ITEMS; i++)
       {
-        ESP_WML_LOGINFO5("i=", i, ",id=", myMenuItems[i].id, ",data=", myMenuItems[i].pdata);
+        ESP_WML_LOGERROR5("i=", i, ",id=", myMenuItems[i].id, ",data=", myMenuItems[i].pdata);
       }
 
 #endif
@@ -1484,8 +1486,8 @@ class ESPAsync_WiFiManager_Lite
 
     void displayWiFiData()
     {
-      ESP_WML_LOGERROR3(F("SSID="), WiFi.SSID(), F(",RSSI="), WiFi.RSSI());
-      ESP_WML_LOGERROR1(F("IP="), WiFi.localIP() );
+      ESP_WML_LOGINFO3(F("SSID="), WiFi.SSID(), F(",RSSI="), WiFi.RSSI());
+      ESP_WML_LOGINFO1(F("IP="), WiFi.localIP() );
     }
 
     //////////////////////////////////////
@@ -1533,6 +1535,12 @@ class ESPAsync_WiFiManager_Lite
            ( strlen(ESP_WM_LITE_config.WiFi_Creds[1].wifi_pw)   < PASSWORD_MIN_LEN ) )
 #endif
       {
+        // Serial.println("*****************************");
+        // Serial.println(ESP_WM_LITE_config.WiFi_Creds[0].wifi_ssid);
+        // Serial.println(ESP_WM_LITE_config.WiFi_Creds[0].wifi_pw);
+        // Serial.println(ESP_WM_LITE_config.WiFi_Creds[1].wifi_ssid);
+        // Serial.println(ESP_WM_LITE_config.WiFi_Creds[1].wifi_pw);
+        // Serial.println("*****************************");
         // If SSID, PW ="blank" or NULL, set the flag
         ESP_WML_LOGERROR(F("Invalid Stored WiFi Config Data"));
 
@@ -2972,7 +2980,7 @@ Serial.println("!!!! WiFi.mode(WIFI_STA) (C)");
           {
             if ( !menuItemUpdated[i] && (key == myMenuItems[i].id) )
             {
-              ESP_WML_LOGDEBUG3(F("h:"), myMenuItems[i].id, F("="), value.c_str() );
+              ESP_WML_LOGERROR3(F("h:"), myMenuItems[i].id, F("="), value.c_str() );
 
               menuItemUpdated[i] = true;
 
@@ -2993,8 +3001,8 @@ Serial.println("!!!! WiFi.mode(WIFI_STA) (C)");
 
 #endif
 
-        ESP_WML_LOGDEBUG1(F("h:items updated ="), number_items_Updated);
-        ESP_WML_LOGDEBUG3(F("h:key ="), key, ", value =", value);
+        ESP_WML_LOGERROR1(F("h:items updated ="), number_items_Updated);
+        ESP_WML_LOGERROR3(F("h:key ="), key, ", value =", value);
 
         request->send(200, FPSTR(WM_HTTP_HEAD_TEXT_HTML), "OK");
 
@@ -3109,6 +3117,7 @@ Serial.println("!!!! WiFi.mode(WIFI_STA) (C)");
       //See https://stackoverflow.com/questions/39803135/c-unresolved-overloaded-function-type?rq=1
       if (server && dnsServer)
       {
+        Serial.println("[ZJ] configuration_mode (A.1)");
         // CaptivePortal
         // if DNSServer is started with "*" for domain name, it will reply with provided IP to all DNS requests
         dnsServer->start(DNS_PORT, "*", portal_apIP);
@@ -3116,6 +3125,7 @@ Serial.println("!!!! WiFi.mode(WIFI_STA) (C)");
         // reply to all requests with same HTML
         server->onNotFound([this](AsyncWebServerRequest * request)
         {
+          Serial.println("[ZJ] configuration_mode (A.2)");
           handleRequest(request);
         });
         
@@ -3126,17 +3136,19 @@ Serial.println("!!!! WiFi.mode(WIFI_STA) (C)");
       // or SSID, PW, Server,Token ="nothing"
       if (hadConfigData)
       {
+        Serial.println("[ZJ] configuration_mode (B.1)");
         configTimeout = millis() + CONFIG_TIMEOUT;
 
         ESP_WML_LOGDEBUG3(F("s:millis() = "), millis(), F(", configTimeout = "), configTimeout);
       }
       else
       {
+        Serial.println("[ZJ] configuration_mode (B.2)");
         configTimeout = 0;
         ESP_WML_LOGDEBUG(F("s:configTimeout = 0"));
       }
 
-Serial.println("[ZJ] configuration_mode = true (B)");
+      Serial.println("[ZJ] configuration_mode = true (C)");
       configuration_mode = true;
     }
 

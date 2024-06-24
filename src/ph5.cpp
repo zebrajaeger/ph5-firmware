@@ -9,15 +9,19 @@ TelnetSpy serialAndTelnet;
 
 // WIFIManager
 #define _ESP_WM_LITE_LOGLEVEL_ 0
-#define USE_DYNAMIC_PARAMETERS true
+// #define USE_DYNAMIC_PARAMETERS true
 #define RESET_IF_CONFIG_TIMEOUT false
 #define USING_BOARD_NAME true
 #define SCAN_WIFI_NETWORKS true
 #define MAX_SSID_IN_LIST 10
+#define REQUIRE_ONE_SET_SSID_PW true
 #include <ESPAsync_WiFiManager_Lite.h>
-char mqttServer[40] = "192.168.8.142";
-MenuItem myMenuItems[] = {{"mqsrv", "Mqtt Server", mqttServer, 41}};
-uint16_t NUM_MENU_ITEMS = 1;
+const int mqttPort = 1883;
+char mqttServer1[127] = "192.168.8.144";
+char mqttServer2[127] = "192.168.8.142";
+uint8_t mqttServerIndex = 0;
+// MenuItem myMenuItems[] = {{"mqsr1", "Mqtt Server 1", mqttServer1, 128}, {"mqsr2", "Mqtt Server 2", mqttServer2, 128}};
+// uint16_t NUM_MENU_ITEMS = 2;
 
 // #include "credentials.h"
 bool LOAD_DEFAULT_CONFIG_DATA = false;
@@ -41,8 +45,6 @@ ImprovWiFi improvSerial(&serialAndTelnet);
 
 #include "jsonCommand.h"
 #include "jsonStatus.h"
-// const char* mqttServer = "192.168.8.142";
-const int mqttPort = 1883;
 WiFiClient espClient;
 PubSubClient mqtt(espClient);
 JsonCommandParser jsonCommandParser(serialAndTelnet, 1000, 1000);
@@ -365,8 +367,7 @@ void wiFiEvent(WiFiEvent_t event) {
       serialAndTelnet.println("[-WiFi-] Authentication mode of access point has changed");
       break;
     case SYSTEM_EVENT_STA_GOT_IP:
-      serialAndTelnet.printf("[-WiFi-] Obtained IP address: %s\n", WiFi.localIP());
-      // currentIp = WiFi.localIP().toString();
+      serialAndTelnet.printf("[-WiFi-] Obtained IP address: %s\n", WiFi.localIP().toString());
       break;
     case SYSTEM_EVENT_STA_LOST_IP:
       serialAndTelnet.println("[-WiFi-] Lost IP address and IP address is reset to 0");
@@ -411,7 +412,7 @@ void wiFiEvent(WiFiEvent_t event) {
       serialAndTelnet.println("[-WiFi-] IPv6 is preferred");
       break;
     case SYSTEM_EVENT_ETH_GOT_IP:
-      serialAndTelnet.println("[-WiFi-] Obtained IP address");
+      serialAndTelnet.println("[-WiFi-] ETH_GOT_IP");
       break;
     default:
       break;
@@ -453,12 +454,16 @@ void scanI2C() {
 void handleMqtt() {
   if (!mqtt.connected() && WiFi.isConnected() &&
       (mqttNextConnectionAttempt == 0 || mqttNextConnectionAttempt < millis())) {
-    serialAndTelnet.println("[MQTT] Connect to MQTT Server...");
+    // server 1 or server 2
+    mqtt.setServer(mqttServerIndex == 0 ? mqttServer1 : mqttServer2, mqttPort);
+    serialAndTelnet.print("[MQTT] Try connect to MQTT Server ");
+    serialAndTelnet.println(mqttServerIndex == 0 ? mqttServer1 : mqttServer2);
+
     mqttNextConnectionAttempt = millis() + 5000;  // every 5s
     if (mqtt.connect(deviceName.c_str())) {
       serialAndTelnet.println("[MQTT] connected");
 
-      // Themen abonnieren
+      // Subscribe to command topic
       serialAndTelnet.print("[MQTT] subscribe to '");
       serialAndTelnet.print(deviceName + "/cmd");
       serialAndTelnet.println("'");
@@ -467,8 +472,14 @@ void handleMqtt() {
     } else {
       serialAndTelnet.print("[MQTT] Connection error, rc=");
       serialAndTelnet.print(mqtt.state());
-      serialAndTelnet.println(" retry in 5s");
-      // delay(5000); //never ever!!!
+
+      if (mqttServerIndex == 0) {
+        mqttServerIndex = 1;
+      } else {
+        mqttServerIndex = 0;
+      }
+      serialAndTelnet.print(" retry with next server: ");
+      serialAndTelnet.println(mqttServerIndex == 0 ? mqttServer1 : mqttServer2);
     }
     displayUpdateRequired = true;
   }
@@ -511,8 +522,24 @@ void handleDisplay() {
   }
 
   // WiFi IP
+  // u8g2.setCursor(30, 12);
   u8g2.setFont(u8g2_font_helvR08_tf);
   u8g2.print(WiFi.localIP().toString());
+
+  // MQTT
+  u8g2.setCursor(0, 30);
+  u8g2.print("M ");
+  if (WiFi.isConnected()) {
+    if (mqtt.connected()) {
+      u8g2.print(mqttServerIndex == 0 ? mqttServer1 : mqttServer2);
+    } else {
+      u8g2.print("[");
+      u8g2.print(mqttServerIndex == 0 ? mqttServer1 : mqttServer2);
+      u8g2.print("]");
+    }
+  } else {
+    u8g2.print("-");
+  }
 
   // X
   if (stepperX) {
@@ -523,10 +550,10 @@ void handleDisplay() {
       u8g2.setForegroundColor(WHITE);
       u8g2.setBackgroundColor(BLACK);
     }
-    u8g2.setCursor(0, 30);
+    u8g2.setCursor(0, 50);
     u8g2.setFont(u8g2_font_helvR10_tf);
     u8g2.print("x");
-    u8g2.setCursor(20, 30);
+    u8g2.setCursor(20, 50);
     u8g2.setFont(u8g2_font_helvR08_tf);
     u8g2.setForegroundColor(WHITE);
     u8g2.setBackgroundColor(BLACK);
@@ -542,49 +569,51 @@ void handleDisplay() {
       u8g2.setForegroundColor(WHITE);
       u8g2.setBackgroundColor(BLACK);
     }
-    u8g2.setCursor(0, 45);
+    u8g2.setCursor(0, 63);
     u8g2.setFont(u8g2_font_helvR10_tf);
     u8g2.print("y");
-    u8g2.setCursor(20, 45);
+    u8g2.setCursor(20, 63);
     u8g2.setForegroundColor(WHITE);
     u8g2.setBackgroundColor(BLACK);
     u8g2.setFont(u8g2_font_helvR08_tf);
     u8g2.print(stepperY->getCurrentPosition());
   }
 
-  // Focus
-  u8g2.setFont(u8g2_font_helvR10_tf);
-  u8g2.setCursor(0, 63);
-  if (camera.isFocusing()) {
-    u8g2.setForegroundColor(BLACK);
-    u8g2.setBackgroundColor(WHITE);
-  } else {
-    u8g2.setForegroundColor(WHITE);
-    u8g2.setBackgroundColor(BLACK);
-  }
-  u8g2.print("F");
+  // // Focus
+  // u8g2.setFont(u8g2_font_helvR10_tf);
+  // u8g2.setCursor(0, 20);
+  // if (camera.isFocusing()) {
+  //   u8g2.setForegroundColor(BLACK);
+  //   u8g2.setBackgroundColor(WHITE);
+  // } else {
+  //   u8g2.setForegroundColor(WHITE);
+  //   u8g2.setBackgroundColor(BLACK);
+  // }
+  // u8g2.print("F");
 
-  // Trigger
-  u8g2.setCursor(20, 63);
-  if (camera.isTriggering()) {
-    u8g2.setForegroundColor(BLACK);
-    u8g2.setBackgroundColor(WHITE);
-  } else {
-    u8g2.setForegroundColor(WHITE);
-    u8g2.setBackgroundColor(BLACK);
-  }
-  u8g2.print("T");
+  // // Trigger
+  // u8g2.setCursor(20, 40);
+  // if (camera.isTriggering()) {
+  //   u8g2.setForegroundColor(BLACK);
+  //   u8g2.setBackgroundColor(WHITE);
+  // } else {
+  //   u8g2.setForegroundColor(WHITE);
+  //   u8g2.setBackgroundColor(BLACK);
+  // }
+  // u8g2.print("T");
 
   // MQTT Connection
-  u8g2.setCursor(110, 63);
-  if (mqtt.connected()) {
-    u8g2.setForegroundColor(BLACK);
-    u8g2.setBackgroundColor(WHITE);
-  } else {
-    u8g2.setForegroundColor(WHITE);
-    u8g2.setBackgroundColor(BLACK);
-  }
-  u8g2.print("M");
+  // u8g2.setFont(u8g2_font_helvR08_tf);
+  // u8g2.setCursor(110, 60);
+  // if (mqtt.connected()) {
+  //   u8g2.setForegroundColor(BLACK);
+  //   u8g2.setBackgroundColor(WHITE);
+  // } else {
+  //   u8g2.setForegroundColor(WHITE);
+  //   u8g2.setBackgroundColor(BLACK);
+  // }
+  // // u8g2.print("M");
+  // u8g2.print(mqttServerIndex==0 ? mqttServer1 : mqttServer2);
 
   display.display();
 }
@@ -677,7 +706,11 @@ void setup() {
 
   // MQTT
   serialAndTelnet.println("[APP] Initialize MQTT");
-  mqtt.setServer(mqttServer, mqttPort);
+  serialAndTelnet.print("[MQTT] server1: ");
+  serialAndTelnet.println(mqttServer1);
+  serialAndTelnet.print("[MQTT] server2: ");
+  serialAndTelnet.println(mqttServer2);
+  mqtt.setSocketTimeout(5);  // 5 seconds
   mqtt.setCallback(mqttCallback);
 
   // Steppers
