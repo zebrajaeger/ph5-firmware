@@ -1107,6 +1107,43 @@ class ESPAsync_WiFiManager_Lite
       return (String(ESP_WM_LITE_config.WiFi_Creds[index].wifi_ssid));
     }
 
+    void setWiFiSSID(const uint8_t& index, const String &ssid)
+    {
+      if (index >= NUM_WIFI_CREDENTIALS)
+        return ;
+
+      if (!hadConfigData)
+        getConfigData();
+
+      strcpy(ESP_WM_LITE_config.WiFi_Creds[index].wifi_ssid, ssid.c_str());
+      saveConfigData();
+    }
+
+    void setWiFiPw(const uint8_t& index, const String &pw)
+    {
+      if (index >= NUM_WIFI_CREDENTIALS)
+        return ;
+
+      if (!hadConfigData)
+        getConfigData();
+
+      strcpy(ESP_WM_LITE_config.WiFi_Creds[index].wifi_pw, pw.c_str());
+      saveConfigData();
+    }
+
+    void setWiFiCredentials(const uint8_t& index, const String &ssid, const String &pw)
+    {
+      if (index >= NUM_WIFI_CREDENTIALS)
+        return ;
+
+      if (!hadConfigData)
+        getConfigData();
+
+      strcpy(ESP_WM_LITE_config.WiFi_Creds[index].wifi_pw, pw.c_str());
+      strcpy(ESP_WM_LITE_config.WiFi_Creds[index].wifi_ssid, ssid.c_str());
+      saveConfigData();
+    }
+
     //////////////////////////////////////////////
 
     String getWiFiPW(const uint8_t& index)

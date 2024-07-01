@@ -7,6 +7,14 @@ TelnetSpy serialAndTelnet;
 // DoubleresetDetector
 #define DOUBLERESETDETECTOR_DEBUG false
 
+// config
+// mqtt -nr 1 -host 192.168.178.42
+struct ZjConfig {
+  char mqttServer1[127];
+  char mqttServer2[127];
+};
+ZjConfig config;
+
 // WIFIManager
 #define _ESP_WM_LITE_LOGLEVEL_ 0
 // #define USE_DYNAMIC_PARAMETERS true
@@ -17,11 +25,7 @@ TelnetSpy serialAndTelnet;
 #define REQUIRE_ONE_SET_SSID_PW true
 #include <ESPAsync_WiFiManager_Lite.h>
 const int mqttPort = 1883;
-char mqttServer1[127] = "192.168.8.144";
-char mqttServer2[127] = "192.168.8.142";
 uint8_t mqttServerIndex = 0;
-// MenuItem myMenuItems[] = {{"mqsr1", "Mqtt Server 1", mqttServer1, 128}, {"mqsr2", "Mqtt Server 2", mqttServer2, 128}};
-// uint16_t NUM_MENU_ITEMS = 2;
 
 // #include "credentials.h"
 bool LOAD_DEFAULT_CONFIG_DATA = false;
@@ -105,7 +109,37 @@ class StateTimer : public IntervalTimer {
 };
 StateTimer stateTimer;
 
+// CLI
+#include <SimpleCLI.h>
+SimpleCLI cli;
+Command cmdHelp;
+Command cmdWiFi;
+Command cmdMqtt;
+Command cmdPrint;
+#define CLI_BUFFER_SIZE 128
+u8_t cliBufferIndex = 0;
+char cliBuffer[CLI_BUFFER_SIZE];
+
 // PH5 Firmware
+#define ZJ_CONFIG_FILENAME ("/zj_config.dat")
+void saveConfigData() {
+  File file = FileFS.open(ZJ_CONFIG_FILENAME, "w");
+  if (file) {
+    file.write((uint8_t*)&config, sizeof(ZjConfig));
+    file.close();
+  }
+}
+
+bool loadConfigData() {
+  File file = FileFS.open(ZJ_CONFIG_FILENAME, "r");
+  if (file) {
+    file.readBytes((char*)&config, sizeof(ZjConfig));
+    file.close();
+    return 0;
+  }
+  return 1;
+}
+
 bool setImprovCredentials(const char* ssid, const char* password) {
   // TODO write to ESPAsync_WiFiManager_Lite config, save it and then reconnect
   serialAndTelnet.print("[Improv] New WIFI credentials: ");
@@ -455,9 +489,9 @@ void handleMqtt() {
   if (!mqtt.connected() && WiFi.isConnected() &&
       (mqttNextConnectionAttempt == 0 || mqttNextConnectionAttempt < millis())) {
     // server 1 or server 2
-    mqtt.setServer(mqttServerIndex == 0 ? mqttServer1 : mqttServer2, mqttPort);
+    mqtt.setServer(mqttServerIndex == 0 ? config.mqttServer1 : config.mqttServer2, mqttPort);
     serialAndTelnet.print("[MQTT] Try connect to MQTT Server ");
-    serialAndTelnet.println(mqttServerIndex == 0 ? mqttServer1 : mqttServer2);
+    serialAndTelnet.println(mqttServerIndex == 0 ? config.mqttServer1 : config.mqttServer2);
 
     mqttNextConnectionAttempt = millis() + 5000;  // every 5s
     if (mqtt.connect(deviceName.c_str())) {
@@ -479,7 +513,7 @@ void handleMqtt() {
         mqttServerIndex = 0;
       }
       serialAndTelnet.print(" retry with next server: ");
-      serialAndTelnet.println(mqttServerIndex == 0 ? mqttServer1 : mqttServer2);
+      serialAndTelnet.println(mqttServerIndex == 0 ? config.mqttServer1 : config.mqttServer2);
     }
     displayUpdateRequired = true;
   }
@@ -531,10 +565,10 @@ void handleDisplay() {
   u8g2.print("M ");
   if (WiFi.isConnected()) {
     if (mqtt.connected()) {
-      u8g2.print(mqttServerIndex == 0 ? mqttServer1 : mqttServer2);
+      u8g2.print(mqttServerIndex == 0 ? config.mqttServer1 : config.mqttServer2);
     } else {
       u8g2.print("[");
-      u8g2.print(mqttServerIndex == 0 ? mqttServer1 : mqttServer2);
+      u8g2.print(mqttServerIndex == 0 ? config.mqttServer1 : config.mqttServer2);
       u8g2.print("]");
     }
   } else {
@@ -616,6 +650,75 @@ void handleDisplay() {
   // u8g2.print(mqttServerIndex==0 ? mqttServer1 : mqttServer2);
 
   display.display();
+}
+
+void cliHelpCallback(cmd* c) {
+  serialAndTelnet.println("wifi (-nr [1|2]) -ssid <ssid> -pw <password>     set WiFi credentials");
+  serialAndTelnet.println("mqtt (-nr [1|2]) -host <host> -port <port>       set MQTT Server config");
+  serialAndTelnet.println("print                                            print configuration");
+  serialAndTelnet.println("help                                             show help");
+}
+
+void cliMqttCallback(cmd* c) {
+  Command cmd(c);
+
+  Argument nr = cmd.getArgument("nr");
+  Argument host = cmd.getArgument("host");
+  // Argument port      = cmd.getArgument("port");
+
+  // Get values
+  int nrVal = nr.getValue().toInt();
+  String hostVal = host.getValue();
+  // int portVal = nr.getValue().toInt();
+
+  if (nrVal == 1) {
+    serialAndTelnet.print("Set mqttServer1 to ");
+    serialAndTelnet.println(hostVal);
+    strcpy(config.mqttServer1, hostVal.c_str());
+    saveConfigData();
+  } else if (nrVal == 2) {
+    serialAndTelnet.print("Set mqttServer2 to ");
+    serialAndTelnet.println(hostVal);
+    strcpy(config.mqttServer2, hostVal.c_str());
+    saveConfigData();
+  }
+}
+
+void cliWifiCallback(cmd* c) {
+  Command cmd(c);
+
+  Argument nr = cmd.getArgument("nr");
+  Argument ssid = cmd.getArgument("ssid");
+  Argument pw = cmd.getArgument("pw");
+  int nrVal = nr.getValue().toInt();
+  String ssidVal = ssid.getValue();
+  String pwVal = pw.getValue();
+
+  if (nrVal == 1) {
+    ESPAsync_WiFiManager->setWiFiCredentials(0, ssidVal, pwVal);
+  } else if (nrVal == 2) {
+    ESPAsync_WiFiManager->setWiFiCredentials(1, ssidVal, pwVal);
+  }
+}
+
+void cliPrintConfig(cmd* c) {
+  serialAndTelnet.println("+--------------------------------+");
+  serialAndTelnet.println("| Config                         |");
+  serialAndTelnet.println("+--------------------------------+");
+  serialAndTelnet.print("mqttServer1: ");
+  serialAndTelnet.println(config.mqttServer1);
+  serialAndTelnet.print("mqttServer2: ");
+  serialAndTelnet.println(config.mqttServer2);
+  serialAndTelnet.print("SSID1: ");
+  serialAndTelnet.println(ESPAsync_WiFiManager->getWiFiSSID(0));
+  serialAndTelnet.print("PW1: ");
+  serialAndTelnet.println(ESPAsync_WiFiManager->getWiFiPW(0));
+  serialAndTelnet.print("SSID2: ");
+  serialAndTelnet.println(ESPAsync_WiFiManager->getWiFiSSID(1));
+  serialAndTelnet.print("PW2: ");
+  serialAndTelnet.println(ESPAsync_WiFiManager->getWiFiPW(1));
+  serialAndTelnet.print("localIP:");
+  serialAndTelnet.println(ESPAsync_WiFiManager->localIP());
 }
 
 void setup() {
@@ -704,12 +807,15 @@ void setup() {
   serialAndTelnet.print("[App] IP address: ");
   serialAndTelnet.println(WiFi.localIP());
 
+  // Config
+  loadConfigData();
+
   // MQTT
   serialAndTelnet.println("[APP] Initialize MQTT");
   serialAndTelnet.print("[MQTT] server1: ");
-  serialAndTelnet.println(mqttServer1);
+  serialAndTelnet.println(config.mqttServer1);
   serialAndTelnet.print("[MQTT] server2: ");
-  serialAndTelnet.println(mqttServer2);
+  serialAndTelnet.println(config.mqttServer2);
   mqtt.setSocketTimeout(5);  // 5 seconds
   mqtt.setCallback(mqttCallback);
 
@@ -747,6 +853,21 @@ void setup() {
   stateTimer.start(10000);
 
   stateTimer.forceTrigger();
+
+  // CLI
+  cmdMqtt = cli.addCommand("mqtt", cliMqttCallback);
+  cmdMqtt.addArgument("nr", "1");
+  cmdMqtt.addArgument("host");
+  cmdMqtt.addArgument("port", "1883");
+
+  cmdWiFi = cli.addCommand("wifi", cliWifiCallback);
+  cmdWiFi.addArgument("nr", "1");
+  cmdWiFi.addArgument("ssid");
+  cmdWiFi.addArgument("pw");
+
+  cmdPrint = cli.addCommand("print", cliPrintConfig);
+
+  cmdHelp = cli.addCommand("help", cliHelpCallback);
 }
 
 unsigned long t = millis();
@@ -758,6 +879,48 @@ void loop() {
 
   ArduinoOTA.handle();
   serialAndTelnet.handle();
+
+  // CLI
+  if (serialAndTelnet.available()) {
+    char c = serialAndTelnet.read();
+    if (cliBufferIndex < CLI_BUFFER_SIZE - 1) {
+      // within buffer
+      if ('\r' == c) {
+        // ignore
+      } else if ('\n' == c) {
+        // end of line. terminate and parse
+        serialAndTelnet.print("# ");
+        serialAndTelnet.println(cliBuffer);
+        cli.parse(cliBuffer);
+        cliBuffer[cliBufferIndex] = 0;
+        cliBufferIndex = 0;
+
+        if (cli.errored()) {
+          CommandError cmdError = cli.getError();
+
+          serialAndTelnet.print("ERROR: ");
+          serialAndTelnet.println(cmdError.toString());
+
+          if (cmdError.hasCommand()) {
+            serialAndTelnet.print("Did you mean \"");
+            serialAndTelnet.print(cmdError.getCommand().toString());
+            serialAndTelnet.println("\"?");
+          }
+        }
+
+      } else {
+        // write char
+        cliBuffer[cliBufferIndex] = c;
+        cliBufferIndex++;
+      }
+    } else if (cliBufferIndex == CLI_BUFFER_SIZE - 1) {
+      // end of buffer, close with zero
+      cliBuffer[cliBufferIndex] = 0;
+      cliBufferIndex++;
+    } else {
+      // ignore
+    }
+  }
   handleMqtt();
   camera.handle();
 
