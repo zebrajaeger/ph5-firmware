@@ -55,8 +55,10 @@ JsonCommandParser jsonCommandParser(serialAndTelnet, 1000, 1000);
 unsigned long mqttNextConnectionAttempt = 0;
 
 // Stepper
+#define STEPPER_X_ENABLE_PIN 32
 #define STEPPER_X_STEP_PIN 19
 #define STEPPER_X_DIR_PIN 18
+#define STEPPER_Y_ENABLE_PIN 33
 #define STEPPER_Y_STEP_PIN 23
 #define STEPPER_Y_DIR_PIN 22
 #include <FastAccelStepper.h>
@@ -826,9 +828,12 @@ void setup() {
   stepperX = engine.stepperConnectToPin(STEPPER_X_STEP_PIN);
   if (stepperX) {
     stepperX->setDirectionPin(STEPPER_X_DIR_PIN);
+    stepperX->setEnablePin(STEPPER_X_ENABLE_PIN);
     stepperX->setSpeedInHz(1000);
     stepperX->setLinearAcceleration(200);
     stepperX->setAcceleration(1000);
+    stepperX->setAutoEnable(false);
+    stepperX->enableOutputs();
     serialAndTelnet.println("[Stepper] Stepper X initialized");
   } else {
     serialAndTelnet.println("[Stepper] Error: Stepper X not initialized");
@@ -836,9 +841,12 @@ void setup() {
   stepperY = engine.stepperConnectToPin(STEPPER_Y_STEP_PIN);
   if (stepperY) {
     stepperY->setDirectionPin(STEPPER_Y_DIR_PIN);
+    stepperY->setEnablePin(STEPPER_Y_ENABLE_PIN);
     stepperY->setSpeedInHz(16000);
     stepperY->setLinearAcceleration(200);
     stepperY->setAcceleration(1000);
+    stepperY->setAutoEnable(false);
+    stepperY->enableOutputs();
     serialAndTelnet.println("[Stepper] Stepper Y initialized");
   } else {
     serialAndTelnet.println("[Stepper] Error: Stepper Y not initialized");
