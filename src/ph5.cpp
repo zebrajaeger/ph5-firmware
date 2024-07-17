@@ -117,6 +117,9 @@ SimpleCLI cli;
 Command cmdHelp;
 Command cmdWiFi;
 Command cmdMqtt;
+Command cmdMoveX;
+Command cmdMoveY;
+Command cmdMove;
 Command cmdPrint;
 #define CLI_BUFFER_SIZE 128
 u8_t cliBufferIndex = 0;
@@ -157,6 +160,211 @@ void telnetDisconnected() { serialAndTelnet.println(F("[Telnet] connection close
 
 void disconnectClientWrapper() { serialAndTelnet.disconnectClient(); }
 
+void processJsonCommand(JsonCommand& cmd) {
+  serialAndTelnet.print("[CMD] ");
+  serialAndTelnet.println(cmd.toString());
+
+  if (cmd.valid) {
+    displayUpdateRequired = true;
+    switch (cmd.cmd) {
+      case JsonCommand::MOVE_X: {
+        if (stepperX) {
+          if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
+            isRunningX = stepperX->move(cmd.x) == MOVE_OK;
+            serialAndTelnet.print("[Stepper] MoveX (1): ");
+            serialAndTelnet.println(isRunningX);
+            stateTimer.forceTrigger();
+          }
+        }
+        break;
+      }
+      case JsonCommand::MOVE_Y: {
+        if (stepperY) {
+          if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
+            isRunningY = stepperY->move(cmd.y) == MOVE_OK;
+            serialAndTelnet.print("[Stepper] MoveY (1): ");
+            serialAndTelnet.println(isRunningY);
+            stateTimer.forceTrigger();
+          }
+        }
+        break;
+      }
+      case JsonCommand::MOVE_XY: {
+        if (stepperX) {
+          if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
+            isRunningX = stepperX->move(cmd.x) == MOVE_OK;
+            serialAndTelnet.print("[Stepper] MoveX (2): ");
+            serialAndTelnet.println(isRunningX);
+            stateTimer.forceTrigger();
+          }
+        }
+        if (stepperY) {
+          if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
+            isRunningY = stepperY->move(cmd.y) == MOVE_OK;
+            serialAndTelnet.print("[Stepper] MoveY (2): ");
+            serialAndTelnet.println(isRunningY);
+            stateTimer.forceTrigger();
+          }
+        }
+        break;
+      }
+
+      case JsonCommand::SPEED_X: {
+        if (stepperX) {
+          if (cmd.speedX > 0) {
+            if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
+              isRunningX = stepperX->runForward() == MOVE_OK;
+            }
+          } else {
+            if (stepperX->setSpeedInHz(-cmd.speedX) == 0) {
+              isRunningX = stepperX->runBackward() == MOVE_OK;
+            }
+          }
+          serialAndTelnet.println("[Stepper] SpeedX");
+          stateTimer.forceTrigger();
+        }
+        break;
+      }
+      case JsonCommand::SPEED_Y: {
+        if (stepperY) {
+          if (cmd.speedY > 0) {
+            if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
+              isRunningY = stepperY->runForward() == MOVE_OK;
+            }
+          } else {
+            if (stepperY->setSpeedInHz(-cmd.speedY) == 0) {
+              isRunningY = stepperY->runBackward() == MOVE_OK;
+            }
+          }
+          serialAndTelnet.println("[Stepper] SpeedY");
+          stateTimer.forceTrigger();
+        }
+        break;
+      }
+      case JsonCommand::SPEED_XY: {
+        if (stepperX) {
+          if (cmd.speedX > 0) {
+            if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
+              isRunningX = stepperX->runForward() == MOVE_OK;
+            }
+          } else {
+            if (stepperX->setSpeedInHz(-cmd.speedX) == 0) {
+              isRunningX = stepperX->runBackward() == MOVE_OK;
+            }
+          }
+          serialAndTelnet.println("[Stepper] SpeedX");
+          stateTimer.forceTrigger();
+        }
+        if (stepperY) {
+          if (cmd.speedY > 0) {
+            if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
+              isRunningY = stepperY->runForward() == MOVE_OK;
+            }
+          } else {
+            if (stepperY->setSpeedInHz(-cmd.speedY) == 0) {
+              isRunningY = stepperY->runBackward() == MOVE_OK;
+            }
+          }
+          serialAndTelnet.println("[Stepper] SpeedY");
+          stateTimer.forceTrigger();
+        }
+        break;
+      }
+
+      case JsonCommand::MOVE_TO_X: {
+        if (stepperX) {
+          if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
+            isRunningX = stepperX->moveTo(cmd.x) == MOVE_OK;
+            serialAndTelnet.println("[Stepper] MoveToX");
+            stateTimer.forceTrigger();
+          }
+        }
+        break;
+      }
+      case JsonCommand::MOVE_TO_Y: {
+        if (stepperY) {
+          if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
+            isRunningY = stepperY->moveTo(cmd.y) == MOVE_OK;
+            serialAndTelnet.println("[Stepper] MoveToY");
+            stateTimer.forceTrigger();
+          }
+        }
+        break;
+      }
+      case JsonCommand::MOVE_TO_XY: {
+        if (stepperX) {
+          if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
+            isRunningX = stepperX->moveTo(cmd.x) == MOVE_OK;
+            serialAndTelnet.println("[Stepper] MoveToX");
+            stateTimer.forceTrigger();
+          }
+        }
+        if (stepperY) {
+          if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
+            isRunningY = stepperY->moveTo(cmd.y) == MOVE_OK;
+            serialAndTelnet.println("[Stepper] MoveToY");
+            stateTimer.forceTrigger();
+          }
+        }
+        break;
+      }
+
+      case JsonCommand::STOP: {
+        if (stepperX) {
+          stepperX->stopMove();
+        }
+        if (stepperY) {
+          stepperY->stopMove();
+        }
+        stateTimer.forceTrigger();
+        break;
+      }
+      case JsonCommand::FORCE_STOP: {
+        if (stepperX) {
+          stepperX->forceStop();
+        }
+        if (stepperY) {
+          stepperY->forceStop();
+        }
+        stateTimer.forceTrigger();
+        break;
+      }
+
+      case JsonCommand::FOCUS: {
+        zj_u32_t f;
+        f.uint32 = cmd.focus;
+        camera.startFocus(f);
+        isFocusing = true;
+        stateTimer.forceTrigger();
+        break;
+      }
+      case JsonCommand::TRIGGER: {
+        zj_u32_t t;
+        t.uint32 = cmd.trigger;
+        camera.startTrigger(t);
+        isTriggering = true;
+        stateTimer.forceTrigger();
+        break;
+      }
+      case JsonCommand::FOCUS_AND_TRIGGER: {
+        zj_u32_t f;
+        f.uint32 = cmd.focus;
+        zj_u32_t t;
+        t.uint32 = cmd.trigger;
+        camera.startShot(f, t);
+        isFocusing = true;
+        stateTimer.forceTrigger();
+        break;
+      }
+
+      case JsonCommand::UNKNOWN:
+      default:
+        // TODO
+        break;
+    }
+  }
+}
+
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   char msg[length + 1];
   strncpy(msg, (char*)payload, length);
@@ -171,209 +379,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
   JsonCommand cmd;
   if (!jsonCommandParser.parse((char*)payload, cmd)) {
-    serialAndTelnet.print("[CMD] ");
-    serialAndTelnet.println(cmd.toString());
-    if (cmd.valid) {
-      displayUpdateRequired = true;
-      switch (cmd.cmd) {
-        case JsonCommand::MOVE_X: {
-          if (stepperX) {
-            if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-              isRunningX = stepperX->move(cmd.x) == MOVE_OK;
-              serialAndTelnet.print("[Stepper] MoveX (1): ");
-              serialAndTelnet.println(isRunningX);
-              stateTimer.forceTrigger();
-            }
-          }
-          break;
-        }
-        case JsonCommand::MOVE_Y: {
-          if (stepperY) {
-            if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
-              isRunningY = stepperY->move(cmd.y) == MOVE_OK;
-              serialAndTelnet.print("[Stepper] MoveY (1): ");
-              serialAndTelnet.println(isRunningY);
-              stateTimer.forceTrigger();
-            }
-          }
-          break;
-        }
-        case JsonCommand::MOVE_XY: {
-          if (stepperX) {
-            if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-              isRunningX = stepperX->move(cmd.x) == MOVE_OK;
-              serialAndTelnet.print("[Stepper] MoveX (2): ");
-              serialAndTelnet.println(isRunningX);
-              stateTimer.forceTrigger();
-            }
-          }
-          if (stepperY) {
-            if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-              isRunningY = stepperY->move(cmd.y) == MOVE_OK;
-              serialAndTelnet.print("[Stepper] MoveY (2): ");
-              serialAndTelnet.println(isRunningY);
-              stateTimer.forceTrigger();
-            }
-          }
-          break;
-        }
-
-        case JsonCommand::SPEED_X: {
-          if (stepperX) {
-            if (cmd.speedX > 0) {
-              if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-                isRunningX = stepperX->runForward() == MOVE_OK;
-              }
-            } else {
-              if (stepperX->setSpeedInHz(-cmd.speedX) == 0) {
-                isRunningX = stepperX->runBackward() == MOVE_OK;
-              }
-            }
-            serialAndTelnet.println("[Stepper] SpeedX");
-            stateTimer.forceTrigger();
-          }
-          break;
-        }
-        case JsonCommand::SPEED_Y: {
-          if (stepperY) {
-            if (cmd.speedY > 0) {
-              if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
-                isRunningY = stepperY->runForward() == MOVE_OK;
-              }
-            } else {
-              if (stepperY->setSpeedInHz(-cmd.speedY) == 0) {
-                isRunningY = stepperY->runBackward() == MOVE_OK;
-              }
-            }
-            serialAndTelnet.println("[Stepper] SpeedY");
-            stateTimer.forceTrigger();
-          }
-          break;
-        }
-        case JsonCommand::SPEED_XY: {
-          if (stepperX) {
-            if (cmd.speedX > 0) {
-              if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-                isRunningX = stepperX->runForward() == MOVE_OK;
-              }
-            } else {
-              if (stepperX->setSpeedInHz(-cmd.speedX) == 0) {
-                isRunningX = stepperX->runBackward() == MOVE_OK;
-              }
-            }
-            serialAndTelnet.println("[Stepper] SpeedX");
-            stateTimer.forceTrigger();
-          }
-          if (stepperY) {
-            if (cmd.speedY > 0) {
-              if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
-                isRunningY = stepperY->runForward() == MOVE_OK;
-              }
-            } else {
-              if (stepperY->setSpeedInHz(-cmd.speedY) == 0) {
-                isRunningY = stepperY->runBackward() == MOVE_OK;
-              }
-            }
-            serialAndTelnet.println("[Stepper] SpeedY");
-            stateTimer.forceTrigger();
-          }
-          break;
-        }
-
-        case JsonCommand::MOVE_TO_X: {
-          if (stepperX) {
-            if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-              isRunningX = stepperX->moveTo(cmd.x) == MOVE_OK;
-              serialAndTelnet.println("[Stepper] MoveToX");
-              stateTimer.forceTrigger();
-            }
-          }
-          break;
-        }
-        case JsonCommand::MOVE_TO_Y: {
-          if (stepperY) {
-            if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
-              isRunningY = stepperY->moveTo(cmd.y) == MOVE_OK;
-              serialAndTelnet.println("[Stepper] MoveToY");
-              stateTimer.forceTrigger();
-            }
-          }
-          break;
-        }
-        case JsonCommand::MOVE_TO_XY: {
-          if (stepperX) {
-            if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-              isRunningX = stepperX->moveTo(cmd.x) == MOVE_OK;
-              serialAndTelnet.println("[Stepper] MoveToX");
-              stateTimer.forceTrigger();
-            }
-          }
-          if (stepperY) {
-            if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
-              isRunningY = stepperY->moveTo(cmd.y) == MOVE_OK;
-              serialAndTelnet.println("[Stepper] MoveToY");
-              stateTimer.forceTrigger();
-            }
-          }
-          break;
-        }
-
-        case JsonCommand::STOP: {
-          if (stepperX) {
-            stepperX->stopMove();
-          }
-          if (stepperY) {
-            stepperY->stopMove();
-          }
-          stateTimer.forceTrigger();
-          break;
-        }
-        case JsonCommand::FORCE_STOP: {
-          if (stepperX) {
-            stepperX->forceStop();
-          }
-          if (stepperY) {
-            stepperY->forceStop();
-          }
-          stateTimer.forceTrigger();
-          break;
-        }
-
-        case JsonCommand::FOCUS: {
-          zj_u32_t f;
-          f.uint32 = cmd.focus;
-          camera.startFocus(f);
-          isFocusing = true;
-          stateTimer.forceTrigger();
-          break;
-        }
-        case JsonCommand::TRIGGER: {
-          zj_u32_t t;
-          t.uint32 = cmd.trigger;
-          camera.startTrigger(t);
-          isTriggering = true;
-          stateTimer.forceTrigger();
-          break;
-        }
-        case JsonCommand::FOCUS_AND_TRIGGER: {
-          zj_u32_t f;
-          f.uint32 = cmd.focus;
-          zj_u32_t t;
-          t.uint32 = cmd.trigger;
-          camera.startShot(f, t);
-          isFocusing = true;
-          stateTimer.forceTrigger();
-          break;
-        }
-
-        case JsonCommand::UNKNOWN:
-        default:
-          // TODO
-          break;
-      }
-    } else {
-      serialAndTelnet.println("[JSON] Error: Command is invalid");
-    }
+    processJsonCommand(cmd);
+  } else {
+    serialAndTelnet.println("[JSON] Error: Command is invalid");
   }
 }
 
@@ -655,8 +663,11 @@ void handleDisplay() {
 }
 
 void cliHelpCallback(cmd* c) {
-  serialAndTelnet.println("wifi (-nr [1|2]) -ssid <ssid> -pw <password>     set WiFi credentials");
-  serialAndTelnet.println("mqtt (-nr [1|2]) -host <host> -port <port>       set MQTT Server config");
+  serialAndTelnet.println("wifi  (-nr [1|2]) -ssid <ssid> -pw <password>     set WiFi credentials");
+  serialAndTelnet.println("mqtt  (-nr [1|2]) -host <host> -port <port>       set MQTT Server config");
+  serialAndTelnet.println("movex <x>");
+  serialAndTelnet.println("movey <y>");
+  serialAndTelnet.println("move <x> <y>");
   serialAndTelnet.println("print                                            print configuration");
   serialAndTelnet.println("help                                             show help");
 }
@@ -700,6 +711,38 @@ void cliWifiCallback(cmd* c) {
     ESPAsync_WiFiManager->setWiFiCredentials(0, ssidVal, pwVal);
   } else if (nrVal == 2) {
     ESPAsync_WiFiManager->setWiFiCredentials(1, ssidVal, pwVal);
+  }
+}
+
+void cliMoveCallback(cmd* c) {
+  // Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+  Command cmd(c);
+  Argument x = cmd.getArgument("x");
+  Argument y = cmd.getArgument("y");
+  // Serial.println(x.isSet());
+  // Serial.println(y.isSet());
+
+  JsonCommand jc;
+  jc.valid = true;
+  if (x.isSet() && y.isSet()) {
+    jc.cmd = JsonCommand::MOVE_XY;
+    jc.x = x.getValue().toInt();
+    jc.speedX = 1000;
+    jc.y = y.getValue().toInt();
+    jc.speedY = 1000;
+    processJsonCommand(jc);
+
+  } else if (x.isSet()) {
+    jc.cmd = JsonCommand::MOVE_X;
+    jc.x = x.getValue().toInt();
+    jc.speedX = 1000;
+    processJsonCommand(jc);
+
+  } else if (y.isSet()) {
+    jc.cmd = JsonCommand::MOVE_Y;
+    jc.y = y.getValue().toInt();
+    jc.speedY = 1000;
+    processJsonCommand(jc);
   }
 }
 
@@ -872,6 +915,14 @@ void setup() {
   cmdWiFi.addArgument("nr", "1");
   cmdWiFi.addArgument("ssid");
   cmdWiFi.addArgument("pw");
+
+  cmdMoveX = cli.addCommand("movex", cliMoveCallback);
+  cmdMoveX.addPositionalArgument("x", "0");
+  cmdMoveY = cli.addCommand("movey", cliMoveCallback);
+  cmdMoveY.addPositionalArgument("y", "0");
+  cmdMove = cli.addCommand("move", cliMoveCallback);
+  cmdMove.addPositionalArgument("x", "0");
+  cmdMove.addPositionalArgument("y", "0");
 
   cmdPrint = cli.addCommand("print", cliPrintConfig);
 
