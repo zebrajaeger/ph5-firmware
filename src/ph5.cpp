@@ -120,6 +120,7 @@ Command cmdMqtt;
 Command cmdMoveX;
 Command cmdMoveY;
 Command cmdMove;
+Command cmdRestart;
 Command cmdPrint;
 #define CLI_BUFFER_SIZE 128
 u8_t cliBufferIndex = 0;
@@ -663,13 +664,14 @@ void handleDisplay() {
 }
 
 void cliHelpCallback(cmd* c) {
-  serialAndTelnet.println("wifi  (-nr [1|2]) -ssid <ssid> -pw <password>     set WiFi credentials");
-  serialAndTelnet.println("mqtt  (-nr [1|2]) -host <host> -port <port>       set MQTT Server config");
-  serialAndTelnet.println("movex <x>");
-  serialAndTelnet.println("movey <y>");
-  serialAndTelnet.println("move <x> <y>");
-  serialAndTelnet.println("print                                            print configuration");
-  serialAndTelnet.println("help                                             show help");
+  serialAndTelnet.println("wifi  (-nr [1|2]) -ssid <ssid> -pw <password>   set WiFi credentials");
+  serialAndTelnet.println("mqtt  (-nr [1|2]) -host <host> -port <port>     set MQTT Server config");
+  serialAndTelnet.println("movex <x>                                       move steps in x direction");
+  serialAndTelnet.println("movey <y>                                       move steps in y direction");
+  serialAndTelnet.println("move <x> <y>                                    move steps in x,y or xy direction");
+  serialAndTelnet.println("restart                                         restart device");
+  serialAndTelnet.println("print                                           print configuration");
+  serialAndTelnet.println("help                                            show help");
 }
 
 void cliMqttCallback(cmd* c) {
@@ -764,6 +766,52 @@ void cliPrintConfig(cmd* c) {
   serialAndTelnet.println(ESPAsync_WiFiManager->getWiFiPW(1));
   serialAndTelnet.print("localIP:");
   serialAndTelnet.println(ESPAsync_WiFiManager->localIP());
+}
+
+void cliRestart(cmd* c) {
+  ESP.restart();
+}
+
+void processCmdChar(char c){
+    if (cliBufferIndex < CLI_BUFFER_SIZE - 1) {
+      // within buffer
+      if ('\r' == c) {
+        // ignore
+      } else if ('\n' == c) {
+        // end of line. terminate and parse
+        cliBuffer[cliBufferIndex] = 0;
+        serialAndTelnet.print("# ");
+        serialAndTelnet.println(cliBuffer);
+        cli.parse(cliBuffer);
+        cliBufferIndex = 0;
+
+        if (cli.errored()) {
+          CommandError cmdError = cli.getError();
+
+          serialAndTelnet.print("ERROR: ");
+          serialAndTelnet.println(cmdError.toString());
+
+          if (cmdError.hasCommand()) {
+            serialAndTelnet.print("Did you mean \"");
+            serialAndTelnet.print(cmdError.getCommand().toString());
+            serialAndTelnet.println("\"?");
+          }
+        }
+
+      } else {
+        // write char
+        cliBuffer[cliBufferIndex] = c;
+        cliBufferIndex++;
+      }
+    } else if (cliBufferIndex == CLI_BUFFER_SIZE - 1) {
+      // end of buffer, close with zero
+      cliBuffer[cliBufferIndex] = 0;
+      cliBufferIndex++;
+
+    } else {
+      // buffer left -> ignore
+    }
+
 }
 
 void setup() {
@@ -925,6 +973,7 @@ void setup() {
   cmdMove.addPositionalArgument("y", "0");
 
   cmdPrint = cli.addCommand("print", cliPrintConfig);
+  cmdRestart = cli.addCommand("restart", cliRestart);
 
   cmdHelp = cli.addCommand("help", cliHelpCallback);
 }
@@ -941,44 +990,7 @@ void loop() {
 
   // CLI
   if (serialAndTelnet.available()) {
-    char c = serialAndTelnet.read();
-    if (cliBufferIndex < CLI_BUFFER_SIZE - 1) {
-      // within buffer
-      if ('\r' == c) {
-        // ignore
-      } else if ('\n' == c) {
-        // end of line. terminate and parse
-        serialAndTelnet.print("# ");
-        serialAndTelnet.println(cliBuffer);
-        cli.parse(cliBuffer);
-        cliBuffer[cliBufferIndex] = 0;
-        cliBufferIndex = 0;
-
-        if (cli.errored()) {
-          CommandError cmdError = cli.getError();
-
-          serialAndTelnet.print("ERROR: ");
-          serialAndTelnet.println(cmdError.toString());
-
-          if (cmdError.hasCommand()) {
-            serialAndTelnet.print("Did you mean \"");
-            serialAndTelnet.print(cmdError.getCommand().toString());
-            serialAndTelnet.println("\"?");
-          }
-        }
-
-      } else {
-        // write char
-        cliBuffer[cliBufferIndex] = c;
-        cliBufferIndex++;
-      }
-    } else if (cliBufferIndex == CLI_BUFFER_SIZE - 1) {
-      // end of buffer, close with zero
-      cliBuffer[cliBufferIndex] = 0;
-      cliBufferIndex++;
-    } else {
-      // ignore
-    }
+    processCmdChar(serialAndTelnet.read());
   }
   handleMqtt();
   camera.handle();
