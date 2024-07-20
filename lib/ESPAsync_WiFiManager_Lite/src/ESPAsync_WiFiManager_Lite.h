@@ -1973,6 +1973,9 @@ class ESPAsync_WiFiManager_Lite
 
     bool loadConfigData()
     {
+        Serial.println("[EAW] loadConfigData() ignored");
+        return false;
+
       File file = FileFS.open(CONFIG_FILENAME, "r");
       ESP_WML_LOGINFO(F("LoadCfgFile "));
 
@@ -2003,6 +2006,9 @@ class ESPAsync_WiFiManager_Lite
 
     void saveConfigData()
     {
+        Serial.println("[EAW] saveConfigData() ignored");
+        return;
+
       File file = FileFS.open(CONFIG_FILENAME, "w");
       ESP_WML_LOGINFO(F("SaveCfgFile "));
 

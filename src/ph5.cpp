@@ -8,13 +8,19 @@ TelnetSpy serialAndTelnet;
 #define DOUBLERESETDETECTOR_DEBUG false
 
 // config
-// mqtt -nr 1 -host 192.168.178.42
-struct ZjConfig {
-  char mqttServer1[127];
-  char mqttServer2[127];
-  bool rotateDisplay;
-};
-ZjConfig config;
+#include <Preferences.h>
+Preferences preferences;
+#define PREF_WIFI_1_SSID "wifi-1-ssid"
+#define PREF_WIFI_1_PW "wifi-1-pw"
+#define PREF_WIFI_2_SSID "wifi-2-ssid"
+#define PREF_WIFI_2_PW "wifi-2-pw"
+
+#define PREF_MQTT_1_HOST "mqtt-1-host"
+#define PREF_MQTT_1_PORT "mqtt-1-port"
+#define PREF_MQTT_2_HOST "mqtt-2-host"
+#define PREF_MQTT_2_PORT "mqtt-2-port"
+
+#define PREF_ROTATE_DISPLAY "rotdisp"
 
 // WIFIManager
 #define _ESP_WM_LITE_LOGLEVEL_ 0
@@ -129,32 +135,6 @@ u8_t cliBufferIndex = 0;
 char cliBuffer[CLI_BUFFER_SIZE];
 
 // PH5 Firmware
-#define ZJ_CONFIG_FILENAME ("/zj_config.dat")
-void saveConfigData() {
-  serialAndTelnet.print("[CFG] save config - ");
-  File file = FileFS.open(ZJ_CONFIG_FILENAME, "w");
-  if (file) {
-    file.write((uint8_t*)&config, sizeof(ZjConfig));
-    file.close();
-    serialAndTelnet.println("ok");
-  } else {
-    serialAndTelnet.println("failed");
-  }
-}
-
-bool loadConfigData() {
-  serialAndTelnet.println("[CFG] load config - ");
-  File file = FileFS.open(ZJ_CONFIG_FILENAME, "r");
-  if (file) {
-    file.readBytes((char*)&config, sizeof(ZjConfig));
-    file.close();
-    serialAndTelnet.println("ok");
-    return 0;
-  } else {
-    serialAndTelnet.println("failed");
-    return 1;
-  }
-}
 
 bool setImprovCredentials(const char* ssid, const char* password) {
   // TODO write to ESPAsync_WiFiManager_Lite config, save it and then reconnect
@@ -510,9 +490,10 @@ void handleMqtt() {
   if (!mqtt.connected() && WiFi.isConnected() &&
       (mqttNextConnectionAttempt == 0 || mqttNextConnectionAttempt < millis())) {
     // server 1 or server 2
-    mqtt.setServer(mqttServerIndex == 0 ? config.mqttServer1 : config.mqttServer2, mqttPort);
+    String host = preferences.getString(mqttServerIndex == 0 ? PREF_MQTT_1_HOST : PREF_MQTT_2_HOST);
+    mqtt.setServer(host.c_str(), 1883);  // TODO make port configurable
     serialAndTelnet.print("[MQTT] Try connect to MQTT Server ");
-    serialAndTelnet.println(mqttServerIndex == 0 ? config.mqttServer1 : config.mqttServer2);
+    serialAndTelnet.println(host);
 
     mqttNextConnectionAttempt = millis() + 5000;  // every 5s
     if (mqtt.connect(deviceName.c_str())) {
@@ -533,8 +514,7 @@ void handleMqtt() {
       } else {
         mqttServerIndex = 0;
       }
-      serialAndTelnet.print(" retry with next server: ");
-      serialAndTelnet.println(mqttServerIndex == 0 ? config.mqttServer1 : config.mqttServer2);
+      serialAndTelnet.print(" retry with next server");
     }
     displayUpdateRequired = true;
   }
@@ -586,10 +566,10 @@ void handleDisplay() {
   u8g2.print("M ");
   if (WiFi.isConnected()) {
     if (mqtt.connected()) {
-      u8g2.print(mqttServerIndex == 0 ? config.mqttServer1 : config.mqttServer2);
+      u8g2.print(preferences.getString(mqttServerIndex == 0 ? PREF_MQTT_1_HOST : PREF_MQTT_2_HOST));
     } else {
       u8g2.print("[");
-      u8g2.print(mqttServerIndex == 0 ? config.mqttServer1 : config.mqttServer2);
+      u8g2.print(preferences.getString(mqttServerIndex == 0 ? PREF_MQTT_1_HOST : PREF_MQTT_2_HOST));
       u8g2.print("]");
     }
   } else {
@@ -688,25 +668,20 @@ void cliHelpCallback(cmd* c) {
 void cliMqttCallback(cmd* c) {
   Command cmd(c);
 
-  Argument nr = cmd.getArgument("nr");
-  Argument host = cmd.getArgument("host");
+  long nr = cmd.getArgument("nr").getValue().toInt();  // TODO check if empty
+  String host = cmd.getArgument("host").getValue();
   // Argument port      = cmd.getArgument("port");
 
-  // Get values
-  int nrVal = nr.getValue().toInt();
-  String hostVal = host.getValue();
-  // int portVal = nr.getValue().toInt();
-
-  if (nrVal == 1) {
+  if (nr == 1) {
     serialAndTelnet.print("Set mqttServer1 to ");
-    serialAndTelnet.println(hostVal);
-    strcpy(config.mqttServer1, hostVal.c_str());
-    saveConfigData();
-  } else if (nrVal == 2) {
+    serialAndTelnet.println(host);
+    preferences.putString(PREF_MQTT_1_HOST, host);
+  } else if (nr == 2) {
     serialAndTelnet.print("Set mqttServer2 to ");
-    serialAndTelnet.println(hostVal);
-    strcpy(config.mqttServer2, hostVal.c_str());
-    saveConfigData();
+    serialAndTelnet.println(host);
+    preferences.putString(PREF_MQTT_2_HOST, host);
+  } else {
+    serialAndTelnet.println("nr out of range [1..2]");
   }
 }
 
@@ -722,8 +697,12 @@ void cliWifiCallback(cmd* c) {
 
   if (nrVal == 1) {
     ESPAsync_WiFiManager->setWiFiCredentials(0, ssidVal, pwVal);
+    preferences.putString(PREF_WIFI_1_SSID, ssidVal);
+    preferences.putString(PREF_WIFI_1_PW, pwVal);
   } else if (nrVal == 2) {
     ESPAsync_WiFiManager->setWiFiCredentials(1, ssidVal, pwVal);
+    preferences.putString(PREF_WIFI_2_SSID, ssidVal);
+    preferences.putString(PREF_WIFI_2_PW, pwVal);
   }
 }
 
@@ -764,11 +743,11 @@ void cliPrintConfig(cmd* c) {
   serialAndTelnet.println("| Config                         |");
   serialAndTelnet.println("+--------------------------------+");
   serialAndTelnet.print("mqttServer1: ");
-  serialAndTelnet.println(config.mqttServer1);
+  serialAndTelnet.println(preferences.getString(PREF_MQTT_1_HOST));
   serialAndTelnet.print("mqttServer2: ");
-  serialAndTelnet.println(config.mqttServer2);
+  serialAndTelnet.println(preferences.getString(PREF_MQTT_2_HOST));
   serialAndTelnet.print("rotateDisplay: ");
-  serialAndTelnet.println(config.rotateDisplay ? "true" : "false");
+  serialAndTelnet.println(preferences.getBool(PREF_ROTATE_DISPLAY) ? "true" : "false");
   serialAndTelnet.print("SSID1: ");
   serialAndTelnet.println(ESPAsync_WiFiManager->getWiFiSSID(0));
   serialAndTelnet.print("PW1: ");
@@ -784,16 +763,20 @@ void cliPrintConfig(cmd* c) {
 void cliRestart(cmd* c) { ESP.restart(); }
 
 void cliRotateDisplay(cmd* c) {
-  config.rotateDisplay = !config.rotateDisplay;
-  if (config.rotateDisplay) {
+  if (preferences.getBool(PREF_ROTATE_DISPLAY)) {
+    display.setRotation(0);
+    serialAndTelnet.println("The display is not rotated");
+    serialAndTelnet.println(preferences.getBool(PREF_ROTATE_DISPLAY));
+    preferences.putBool(PREF_ROTATE_DISPLAY, false);
+    serialAndTelnet.println(preferences.getBool(PREF_ROTATE_DISPLAY));
+  } else {
     serialAndTelnet.println("The display is now rotated by 180 degrees");
     display.setRotation(2);
-  } else {
-    serialAndTelnet.println("The display is not rotated");
-    display.setRotation(0);
+    serialAndTelnet.println(preferences.getBool(PREF_ROTATE_DISPLAY));
+    preferences.putBool(PREF_ROTATE_DISPLAY, true);
+    serialAndTelnet.println(preferences.getBool(PREF_ROTATE_DISPLAY));
   }
   displayUpdateRequired = true;
-  saveConfigData();
 }
 
 void processCmdChar(char c) {
@@ -859,11 +842,8 @@ void setup() {
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   scanI2C();
 
-  // FS
-  FileFS.begin(true);
-
   // Config
-  loadConfigData();
+  preferences.begin("ph5");
 
   // Display
   serialAndTelnet.println("[APP] Initialize Screen");
@@ -871,7 +851,7 @@ void setup() {
     serialAndTelnet.println(F("[SCREEN] Error: SSD1306 allocation failed"));
   } else {
     display.clearDisplay();
-    if (config.rotateDisplay) {
+    if (preferences.getBool(PREF_ROTATE_DISPLAY)) {
       display.setRotation(2);
     }
     u8g2.begin(display);
@@ -898,6 +878,10 @@ void setup() {
 
   ESPAsync_WiFiManager = new ESPAsync_WiFiManager_Lite();
   ESPAsync_WiFiManager->setConfigPortal(AP_SSID, "");
+  ESPAsync_WiFiManager->setWiFiCredentials(0, preferences.getString(PREF_WIFI_1_SSID),
+                                           preferences.getString(PREF_WIFI_1_PW));
+  ESPAsync_WiFiManager->setWiFiCredentials(0, preferences.getString(PREF_WIFI_2_SSID),
+                                           preferences.getString(PREF_WIFI_2_PW));
   ESPAsync_WiFiManager->begin(deviceName.c_str());
 
   // Improv
@@ -935,9 +919,9 @@ void setup() {
   // MQTT
   serialAndTelnet.println("[APP] Initialize MQTT");
   serialAndTelnet.print("[MQTT] server1: ");
-  serialAndTelnet.println(config.mqttServer1);
+  serialAndTelnet.println(preferences.getString(PREF_MQTT_1_HOST));
   serialAndTelnet.print("[MQTT] server2: ");
-  serialAndTelnet.println(config.mqttServer2);
+  serialAndTelnet.println(preferences.getString(PREF_MQTT_2_HOST));
   mqtt.setSocketTimeout(5);  // 5 seconds
   mqtt.setCallback(mqttCallback);
 
@@ -1003,6 +987,7 @@ void setup() {
 
   cmdPrint = cli.addCommand("print", cliPrintConfig);
   cmdRestart = cli.addCommand("restart", cliRestart);
+  cmdRestart = cli.addCommand("reboot", cliRestart);
 
   cmdRotateDisplay = cli.addCommand("rotdisp", cliRotateDisplay);
 
