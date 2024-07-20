@@ -12,6 +12,7 @@ TelnetSpy serialAndTelnet;
 struct ZjConfig {
   char mqttServer1[127];
   char mqttServer2[127];
+  bool rotateDisplay;
 };
 ZjConfig config;
 
@@ -121,6 +122,7 @@ Command cmdMoveX;
 Command cmdMoveY;
 Command cmdMove;
 Command cmdRestart;
+Command cmdRotateDisplay;
 Command cmdPrint;
 #define CLI_BUFFER_SIZE 128
 u8_t cliBufferIndex = 0;
@@ -129,21 +131,29 @@ char cliBuffer[CLI_BUFFER_SIZE];
 // PH5 Firmware
 #define ZJ_CONFIG_FILENAME ("/zj_config.dat")
 void saveConfigData() {
+  serialAndTelnet.print("[CFG] save config - ");
   File file = FileFS.open(ZJ_CONFIG_FILENAME, "w");
   if (file) {
     file.write((uint8_t*)&config, sizeof(ZjConfig));
     file.close();
+    serialAndTelnet.println("ok");
+  } else {
+    serialAndTelnet.println("failed");
   }
 }
 
 bool loadConfigData() {
+  serialAndTelnet.println("[CFG] load config - ");
   File file = FileFS.open(ZJ_CONFIG_FILENAME, "r");
   if (file) {
     file.readBytes((char*)&config, sizeof(ZjConfig));
     file.close();
+    serialAndTelnet.println("ok");
     return 0;
+  } else {
+    serialAndTelnet.println("failed");
+    return 1;
   }
-  return 1;
 }
 
 bool setImprovCredentials(const char* ssid, const char* password) {
@@ -670,6 +680,7 @@ void cliHelpCallback(cmd* c) {
   serialAndTelnet.println("movey <y>                                       move steps in y direction");
   serialAndTelnet.println("move <x> <y>                                    move steps in x,y or xy direction");
   serialAndTelnet.println("restart                                         restart device");
+  serialAndTelnet.println("rotdisp                                         invert display rotation");
   serialAndTelnet.println("print                                           print configuration");
   serialAndTelnet.println("help                                            show help");
 }
@@ -756,6 +767,8 @@ void cliPrintConfig(cmd* c) {
   serialAndTelnet.println(config.mqttServer1);
   serialAndTelnet.print("mqttServer2: ");
   serialAndTelnet.println(config.mqttServer2);
+  serialAndTelnet.print("rotateDisplay: ");
+  serialAndTelnet.println(config.rotateDisplay ? "true" : "false");
   serialAndTelnet.print("SSID1: ");
   serialAndTelnet.println(ESPAsync_WiFiManager->getWiFiSSID(0));
   serialAndTelnet.print("PW1: ");
@@ -768,50 +781,60 @@ void cliPrintConfig(cmd* c) {
   serialAndTelnet.println(ESPAsync_WiFiManager->localIP());
 }
 
-void cliRestart(cmd* c) {
-  ESP.restart();
+void cliRestart(cmd* c) { ESP.restart(); }
+
+void cliRotateDisplay(cmd* c) {
+  config.rotateDisplay = !config.rotateDisplay;
+  if (config.rotateDisplay) {
+    serialAndTelnet.println("The display is now rotated by 180 degrees");
+    display.setRotation(2);
+  } else {
+    serialAndTelnet.println("The display is not rotated");
+    display.setRotation(0);
+  }
+  displayUpdateRequired = true;
+  saveConfigData();
 }
 
-void processCmdChar(char c){
-    if (cliBufferIndex < CLI_BUFFER_SIZE - 1) {
-      // within buffer
-      if ('\r' == c) {
-        // ignore
-      } else if ('\n' == c) {
-        // end of line. terminate and parse
-        cliBuffer[cliBufferIndex] = 0;
-        serialAndTelnet.print("# ");
-        serialAndTelnet.println(cliBuffer);
-        cli.parse(cliBuffer);
-        cliBufferIndex = 0;
-
-        if (cli.errored()) {
-          CommandError cmdError = cli.getError();
-
-          serialAndTelnet.print("ERROR: ");
-          serialAndTelnet.println(cmdError.toString());
-
-          if (cmdError.hasCommand()) {
-            serialAndTelnet.print("Did you mean \"");
-            serialAndTelnet.print(cmdError.getCommand().toString());
-            serialAndTelnet.println("\"?");
-          }
-        }
-
-      } else {
-        // write char
-        cliBuffer[cliBufferIndex] = c;
-        cliBufferIndex++;
-      }
-    } else if (cliBufferIndex == CLI_BUFFER_SIZE - 1) {
-      // end of buffer, close with zero
+void processCmdChar(char c) {
+  if (cliBufferIndex < CLI_BUFFER_SIZE - 1) {
+    // within buffer
+    if ('\r' == c) {
+      // ignore
+    } else if ('\n' == c) {
+      // end of line. terminate and parse
       cliBuffer[cliBufferIndex] = 0;
-      cliBufferIndex++;
+      serialAndTelnet.print("# ");
+      serialAndTelnet.println(cliBuffer);
+      cli.parse(cliBuffer);
+      cliBufferIndex = 0;
+
+      if (cli.errored()) {
+        CommandError cmdError = cli.getError();
+
+        serialAndTelnet.print("ERROR: ");
+        serialAndTelnet.println(cmdError.toString());
+
+        if (cmdError.hasCommand()) {
+          serialAndTelnet.print("Did you mean \"");
+          serialAndTelnet.print(cmdError.getCommand().toString());
+          serialAndTelnet.println("\"?");
+        }
+      }
 
     } else {
-      // buffer left -> ignore
+      // write char
+      cliBuffer[cliBufferIndex] = c;
+      cliBufferIndex++;
     }
+  } else if (cliBufferIndex == CLI_BUFFER_SIZE - 1) {
+    // end of buffer, close with zero
+    cliBuffer[cliBufferIndex] = 0;
+    cliBufferIndex++;
 
+  } else {
+    // buffer left -> ignore
+  }
 }
 
 void setup() {
@@ -836,12 +859,21 @@ void setup() {
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   scanI2C();
 
+  // FS
+  FileFS.begin(true);
+
+  // Config
+  loadConfigData();
+
   // Display
   serialAndTelnet.println("[APP] Initialize Screen");
   if (!display.begin(SSD1306_SWITCHCAPVCC, DISPLAY_ADDRESS)) {
     serialAndTelnet.println(F("[SCREEN] Error: SSD1306 allocation failed"));
   } else {
     display.clearDisplay();
+    if (config.rotateDisplay) {
+      display.setRotation(2);
+    }
     u8g2.begin(display);
     u8g2.setFont(u8g2_font_helvR10_tf);
     u8g2.setForegroundColor(WHITE);
@@ -899,9 +931,6 @@ void setup() {
   // WIFI
   serialAndTelnet.print("[App] IP address: ");
   serialAndTelnet.println(WiFi.localIP());
-
-  // Config
-  loadConfigData();
 
   // MQTT
   serialAndTelnet.println("[APP] Initialize MQTT");
@@ -974,6 +1003,8 @@ void setup() {
 
   cmdPrint = cli.addCommand("print", cliPrintConfig);
   cmdRestart = cli.addCommand("restart", cliRestart);
+
+  cmdRotateDisplay = cli.addCommand("rotdisp", cliRotateDisplay);
 
   cmdHelp = cli.addCommand("help", cliHelpCallback);
 }
