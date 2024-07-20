@@ -877,7 +877,7 @@ void setup() {
   ESPAsync_WiFiManager->setConfigPortal(AP_SSID, "");
   ESPAsync_WiFiManager->setWiFiCredentials(0, preferences.getString(PREF_WIFI_1_SSID),
                                            preferences.getString(PREF_WIFI_1_PW));
-  ESPAsync_WiFiManager->setWiFiCredentials(0, preferences.getString(PREF_WIFI_2_SSID),
+  ESPAsync_WiFiManager->setWiFiCredentials(1, preferences.getString(PREF_WIFI_2_SSID),
                                            preferences.getString(PREF_WIFI_2_PW));
   ESPAsync_WiFiManager->begin(deviceName.c_str());
 
