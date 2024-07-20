@@ -1973,7 +1973,7 @@ class ESPAsync_WiFiManager_Lite
 
     bool loadConfigData()
     {
-        Serial.println("[EAW] loadConfigData() ignored");
+        // Serial.println("[EAW] loadConfigData() ignored");
         return false;
 
       File file = FileFS.open(CONFIG_FILENAME, "r");
@@ -2006,7 +2006,7 @@ class ESPAsync_WiFiManager_Lite
 
     void saveConfigData()
     {
-        Serial.println("[EAW] saveConfigData() ignored");
+        // Serial.println("[EAW] saveConfigData() ignored");
         return;
 
       File file = FileFS.open(CONFIG_FILENAME, "w");

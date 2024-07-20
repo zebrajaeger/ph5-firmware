@@ -707,12 +707,9 @@ void cliWifiCallback(cmd* c) {
 }
 
 void cliMoveCallback(cmd* c) {
-  // Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
   Command cmd(c);
   Argument x = cmd.getArgument("x");
   Argument y = cmd.getArgument("y");
-  // Serial.println(x.isSet());
-  // Serial.println(y.isSet());
 
   JsonCommand jc;
   jc.valid = true;
