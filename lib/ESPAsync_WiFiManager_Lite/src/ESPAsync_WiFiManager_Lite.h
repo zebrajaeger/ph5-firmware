@@ -713,7 +713,8 @@ class ESPAsync_WiFiManager_Lite
 
       ESP_WML_LOGINFO1(F("Hostname="), RFC952_hostname);
 
-      hadConfigData = getConfigData();
+      // hadConfigData = getConfigData();
+      hadConfigData = true;
 
       isForcedConfigPortal = isForcedCP();
 
