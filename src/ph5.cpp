@@ -21,6 +21,7 @@ Preferences preferences;
 #define PREF_MQTT_2_PORT "mqtt-2-port"
 
 #define PREF_ROTATE_DISPLAY "rotdisp"
+#define PREF_SWITCH_XY "swxy"
 
 // WIFIManager
 #define _ESP_WM_LITE_LOGLEVEL_ 0
@@ -129,6 +130,7 @@ Command cmdMoveY;
 Command cmdMove;
 Command cmdRestart;
 Command cmdRotateDisplay;
+Command cmdSwitchXY;
 Command cmdPrint;
 #define CLI_BUFFER_SIZE 128
 u8_t cliBufferIndex = 0;
@@ -661,6 +663,7 @@ void cliHelpCallback(cmd* c) {
   serialAndTelnet.println("move <x> <y>                                    move steps in x,y or xy direction");
   serialAndTelnet.println("restart                                         restart device");
   serialAndTelnet.println("rotdisp                                         invert display rotation");
+  serialAndTelnet.println("switchxy                                        switch x and y axis");
   serialAndTelnet.println("print                                           print configuration");
   serialAndTelnet.println("help                                            show help");
 }
@@ -745,6 +748,8 @@ void cliPrintConfig(cmd* c) {
   serialAndTelnet.println(preferences.getString(PREF_MQTT_2_HOST));
   serialAndTelnet.print("rotateDisplay: ");
   serialAndTelnet.println(preferences.getBool(PREF_ROTATE_DISPLAY) ? "true" : "false");
+  serialAndTelnet.print("switchXY: ");
+  serialAndTelnet.println(preferences.getBool(PREF_SWITCH_XY) ? "true" : "false");
   serialAndTelnet.print("SSID1: ");
   serialAndTelnet.println(ESPAsync_WiFiManager->getWiFiSSID(0));
   serialAndTelnet.print("PW1: ");
@@ -774,6 +779,16 @@ void cliRotateDisplay(cmd* c) {
     serialAndTelnet.println(preferences.getBool(PREF_ROTATE_DISPLAY));
   }
   displayUpdateRequired = true;
+}
+
+void cliSwitchXY(cmd* c) {
+  if (preferences.getBool(PREF_SWITCH_XY)) {
+    preferences.putBool(PREF_SWITCH_XY, false);
+    serialAndTelnet.println("X and Y axis normal (requires restart)");
+  } else {
+    preferences.putBool(PREF_SWITCH_XY, true);
+    serialAndTelnet.println("X and Y axis switched (requires restart)");
+  }
 }
 
 void processCmdChar(char c) {
@@ -926,10 +941,14 @@ void setup() {
   serialAndTelnet.println("[APP] Initialize Steppers");
 
   engine.init();
-  stepperX = engine.stepperConnectToPin(STEPPER_X_STEP_PIN);
+  bool switchAxis = preferences.getBool(PREF_SWITCH_XY);
+  if (switchAxis) {
+    serialAndTelnet.println("[APP] Switch X and Y axis pins");
+  }
+  stepperX = engine.stepperConnectToPin(switchAxis ? STEPPER_Y_STEP_PIN : STEPPER_X_STEP_PIN);
   if (stepperX) {
-    stepperX->setDirectionPin(STEPPER_X_DIR_PIN);
-    stepperX->setEnablePin(STEPPER_X_ENABLE_PIN);
+    stepperX->setDirectionPin(switchAxis ? STEPPER_Y_DIR_PIN : STEPPER_X_DIR_PIN);
+    stepperX->setEnablePin(switchAxis ? STEPPER_Y_ENABLE_PIN : STEPPER_X_ENABLE_PIN);
     stepperX->setSpeedInHz(1000);
     stepperX->setLinearAcceleration(200);
     stepperX->setAcceleration(1000);
@@ -939,10 +958,10 @@ void setup() {
   } else {
     serialAndTelnet.println("[Stepper] Error: Stepper X not initialized");
   }
-  stepperY = engine.stepperConnectToPin(STEPPER_Y_STEP_PIN);
+  stepperY = engine.stepperConnectToPin(switchAxis ? STEPPER_X_STEP_PIN : STEPPER_Y_STEP_PIN);
   if (stepperY) {
-    stepperY->setDirectionPin(STEPPER_Y_DIR_PIN);
-    stepperY->setEnablePin(STEPPER_Y_ENABLE_PIN);
+    stepperY->setDirectionPin(switchAxis ? STEPPER_X_DIR_PIN : STEPPER_Y_DIR_PIN);
+    stepperY->setEnablePin(switchAxis ? STEPPER_X_ENABLE_PIN : STEPPER_Y_ENABLE_PIN);
     stepperY->setSpeedInHz(16000);
     stepperY->setLinearAcceleration(200);
     stepperY->setAcceleration(1000);
@@ -987,6 +1006,7 @@ void setup() {
   cmdRestart = cli.addCommand("reboot", cliRestart);
 
   cmdRotateDisplay = cli.addCommand("rotdisp", cliRotateDisplay);
+  cmdSwitchXY = cli.addCommand("switchxy", cliSwitchXY);
 
   cmdHelp = cli.addCommand("help", cliHelpCallback);
 }
