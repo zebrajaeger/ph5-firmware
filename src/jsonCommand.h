@@ -21,6 +21,9 @@ class JsonCommand {
     FOCUS,
     TRIGGER,
     FOCUS_AND_TRIGGER,
+    SET_POS_X,
+    SET_POS_Y,
+    SET_POS_XY,
     UNKNOWN,
     ERROR
   };
@@ -68,6 +71,15 @@ class JsonCommand {
         break;
       case FOCUS_AND_TRIGGER:
         result = "FOCUS_AND_TRIGGER";
+        break;
+      case SET_POS_X:
+        result = "SET_POS_X";
+        break;
+      case SET_POS_Y:
+        result = "SET_POS_Y";
+        break;
+      case SET_POS_XY:
+        result = "SET_POS_XY";
         break;
       case UNKNOWN:
         result = "UNKNOWN";
@@ -178,6 +190,32 @@ class JsonCommand {
     return ERROR;
   }
 
+  Cmd setPos(JsonDocument& doc) {
+    JsonVariant temp;
+    bool hasX = false;
+    bool hasY = false;
+    temp = doc["x"];
+    if (!temp.isNull()) {
+      x = temp;
+      hasX = true;
+    }
+    temp = doc["y"];
+    if (!temp.isNull()) {
+      y = temp;
+      hasY = true;
+    }
+    if (hasX && hasY) {
+      return SET_POS_XY;
+    }
+    if (hasX) {
+      return SET_POS_X;
+    }
+    if (hasY) {
+      return SET_POS_Y;
+    }
+    return ERROR;
+  }
+
   Cmd setFocusAndTrigger(JsonDocument& doc) {
     JsonVariant temp;
     bool hasFocus = false;
@@ -243,6 +281,10 @@ class JsonCommand {
 
       } else if (c == "shot") {
         cmd = setFocusAndTrigger(doc);
+        valid = cmd != Cmd::ERROR;
+
+      } else if (c == "setpos") {
+        cmd = setPos(doc);
         valid = cmd != Cmd::ERROR;
 
       } else {

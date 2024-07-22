@@ -350,6 +350,36 @@ void processJsonCommand(JsonCommand& cmd) {
         break;
       }
 
+      case JsonCommand::SET_POS_X: {
+        if (stepperX) {
+          if (!stepperX->isRunning()) {
+            stepperX->setCurrentPosition(cmd.x);
+          }
+        }
+        break;
+      }
+      case JsonCommand::SET_POS_Y: {
+        if (stepperY) {
+          if (!stepperY->isRunning()) {
+            stepperY->setCurrentPosition(cmd.x);
+          }
+        }
+        break;
+      }
+      case JsonCommand::SET_POS_XY: {
+        if (stepperX) {
+          if (!stepperX->isRunning()) {
+            stepperX->setCurrentPosition(cmd.x);
+          }
+        }
+        if (stepperY) {
+          if (!stepperY->isRunning()) {
+            stepperY->setCurrentPosition(cmd.x);
+          }
+        }
+        break;
+      }
+
       case JsonCommand::UNKNOWN:
       default:
         // TODO
