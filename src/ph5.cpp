@@ -354,6 +354,7 @@ void processJsonCommand(JsonCommand& cmd) {
         if (stepperX) {
           if (!stepperX->isRunning()) {
             stepperX->setCurrentPosition(cmd.x);
+            stateTimer.forceTrigger();
           }
         }
         break;
@@ -362,6 +363,8 @@ void processJsonCommand(JsonCommand& cmd) {
         if (stepperY) {
           if (!stepperY->isRunning()) {
             stepperY->setCurrentPosition(cmd.x);
+            displayUpdateRequired = true;
+            stateTimer.forceTrigger();
           }
         }
         break;
@@ -370,11 +373,15 @@ void processJsonCommand(JsonCommand& cmd) {
         if (stepperX) {
           if (!stepperX->isRunning()) {
             stepperX->setCurrentPosition(cmd.x);
+            displayUpdateRequired = true;
+            stateTimer.forceTrigger();
           }
         }
         if (stepperY) {
           if (!stepperY->isRunning()) {
             stepperY->setCurrentPosition(cmd.x);
+            displayUpdateRequired = true;
+            stateTimer.forceTrigger();
           }
         }
         break;
@@ -979,9 +986,9 @@ void setup() {
   if (stepperX) {
     stepperX->setDirectionPin(switchAxis ? STEPPER_Y_DIR_PIN : STEPPER_X_DIR_PIN);
     stepperX->setEnablePin(switchAxis ? STEPPER_Y_ENABLE_PIN : STEPPER_X_ENABLE_PIN);
-    stepperX->setSpeedInHz(1000);
-    stepperX->setLinearAcceleration(200);
-    stepperX->setAcceleration(1000);
+    stepperX->setSpeedInHz(3200);
+    // stepperX->setLinearAcceleration(100);
+    stepperX->setAcceleration(5000);
     stepperX->setAutoEnable(false);
     stepperX->enableOutputs();
     serialAndTelnet.println("[Stepper] Stepper X initialized");
@@ -992,9 +999,9 @@ void setup() {
   if (stepperY) {
     stepperY->setDirectionPin(switchAxis ? STEPPER_X_DIR_PIN : STEPPER_Y_DIR_PIN);
     stepperY->setEnablePin(switchAxis ? STEPPER_X_ENABLE_PIN : STEPPER_Y_ENABLE_PIN);
-    stepperY->setSpeedInHz(16000);
-    stepperY->setLinearAcceleration(200);
-    stepperY->setAcceleration(1000);
+    stepperY->setSpeedInHz(3200);
+    // stepperY->setLinearAcceleration(100);
+    stepperY->setAcceleration(5000);
     stepperY->setAutoEnable(false);
     stepperY->enableOutputs();
     serialAndTelnet.println("[Stepper] Stepper Y initialized");
