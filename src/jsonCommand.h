@@ -334,11 +334,21 @@ class JsonCommandParser {
       console.print(text);
     } else {
       command.set(doc);
-      if (command.speedX == 0) {
-        command.speedX = defaultSpeedX;
+
+      // speedX
+      if (command.cmd == JsonCommand::MOVE_X || command.cmd == JsonCommand::MOVE_TO_X ||
+          command.cmd == JsonCommand::MOVE_XY || command.cmd == JsonCommand::MOVE_TO_XY) {
+        if (command.speedX == 0) {
+          command.speedX = defaultSpeedX;
+        }
       }
-      if (command.speedY == 0) {
-        command.speedY = defaultSpeedY;
+
+      // speedY
+      if (command.cmd == JsonCommand::MOVE_Y || command.cmd == JsonCommand::MOVE_TO_Y ||
+          command.cmd == JsonCommand::MOVE_XY || command.cmd == JsonCommand::MOVE_TO_XY) {
+        if (command.speedY == 0) {
+          command.speedY = defaultSpeedY;
+        }
       }
     }
     return error;
