@@ -584,7 +584,7 @@ class ESPAsync_WiFiManager_Lite
         ESP_WML_LOGINFO(F("UseStatIP"));
         WiFi.config(static_IP, static_GW, static_SN, static_DNS1, static_DNS2);
       }
-
+      
       setHostname();
 
       if (WiFi.status() != WL_CONNECTED)
@@ -1011,31 +1011,8 @@ class ESPAsync_WiFiManager_Lite
 
     //////////////////////////////////////////////
 
-    void setHostname()
-    {
-      if (RFC952_hostname[0] != 0)
-      {
-#if ESP8266
-        WiFi.hostname(RFC952_hostname);
-#else
-
-
-        // Check cores/esp32/esp_arduino_version.h and cores/esp32/core_version.h
-#if ( defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 2) )
-        WiFi.setHostname(RFC952_hostname);
-#else
-
-        // Still have bug in ESP32_S2 for old core. If using WiFi.setHostname() => WiFi.localIP() always = 255.255.255.255
-        if ( String(ARDUINO_BOARD) != "ESP32S2_DEV" )
-        {
-          // See https://github.com/espressif/arduino-esp32/issues/2537
-          WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);
-          WiFi.setHostname(RFC952_hostname);
-        }
-
-#endif
-#endif
-      }
+    void setHostname() {
+      WiFi.setHostname("actor");
     }
 
     //////////////////////////////////////////////

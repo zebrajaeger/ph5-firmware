@@ -39,8 +39,8 @@ uint8_t mqttServerIndex = 0;
 bool LOAD_DEFAULT_CONFIG_DATA = false;
 ESP_WM_LITE_Configuration defaultConfig;
 
-String deviceName = F("ph5");
-String AP_SSID = F("ph5");
+String deviceName = F("actor");
+String AP_SSID = F("actor-AP");
 ESPAsync_WiFiManager_Lite* ESPAsync_WiFiManager;
 
 // Improv
