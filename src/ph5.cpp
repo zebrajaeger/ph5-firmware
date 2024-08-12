@@ -57,6 +57,7 @@ ImprovWiFi improvSerial(&serialAndTelnet);
 
 #include "jsonCommand.h"
 #include "jsonStatus.h"
+String mqttPrefix = F("ph5");
 WiFiClient espClient;
 PubSubClient mqtt(espClient);
 JsonCommandParser jsonCommandParser(serialAndTelnet, 1000, 1000);
@@ -77,12 +78,12 @@ bool isRunningX = false;
 bool isRunningY = false;
 
 // Camera
-#define CAMERA_FOCUS_PIN 32
-#define CAMERA_TRIGGER_PIN 33
-#include "camera.h"
-Camera camera;
-bool isFocusing = false;
-bool isTriggering = false;
+// #define CAMERA_FOCUS_PIN 32
+// #define CAMERA_TRIGGER_PIN 33
+// #include "camera.h"
+// Camera camera;
+// bool isFocusing = false;
+// bool isTriggering = false;
 
 // I2C
 #define I2C_SDA_PIN 14
@@ -109,12 +110,12 @@ class StateTimer : public IntervalTimer {
     JsonStatus::convert(stepperX, stepperY, tmp);
     serialAndTelnet.print("[Status] Actor:");
     serialAndTelnet.println(tmp);
-    mqtt.publish((deviceName + "/actor").c_str(), tmp.c_str());
+    mqtt.publish((mqttPrefix + "/actor").c_str(), tmp.c_str());
 
-    JsonStatus::convert(camera, tmp);
-    serialAndTelnet.print("[Status] Camera:");
-    serialAndTelnet.println(tmp);
-    mqtt.publish((deviceName + "/camera").c_str(), tmp.c_str());
+    // JsonStatus::convert(camera, tmp);
+    // serialAndTelnet.print("[Status] Camera:");
+    // serialAndTelnet.println(tmp);
+    // mqtt.publish((mqttPrefix + "/camera").c_str(), tmp.c_str());
   }
 };
 StateTimer stateTimer;
@@ -323,32 +324,32 @@ void processJsonCommand(JsonCommand& cmd) {
         break;
       }
 
-      case JsonCommand::FOCUS: {
-        zj_u32_t f;
-        f.uint32 = cmd.focus;
-        camera.startFocus(f);
-        isFocusing = true;
-        stateTimer.forceTrigger();
-        break;
-      }
-      case JsonCommand::TRIGGER: {
-        zj_u32_t t;
-        t.uint32 = cmd.trigger;
-        camera.startTrigger(t);
-        isTriggering = true;
-        stateTimer.forceTrigger();
-        break;
-      }
-      case JsonCommand::FOCUS_AND_TRIGGER: {
-        zj_u32_t f;
-        f.uint32 = cmd.focus;
-        zj_u32_t t;
-        t.uint32 = cmd.trigger;
-        camera.startShot(f, t);
-        isFocusing = true;
-        stateTimer.forceTrigger();
-        break;
-      }
+      // case JsonCommand::FOCUS: {
+      //   zj_u32_t f;
+      //   f.uint32 = cmd.focus;
+      //   camera.startFocus(f);
+      //   isFocusing = true;
+      //   stateTimer.forceTrigger();
+      //   break;
+      // }
+      // case JsonCommand::TRIGGER: {
+      //   zj_u32_t t;
+      //   t.uint32 = cmd.trigger;
+      //   camera.startTrigger(t);
+      //   isTriggering = true;
+      //   stateTimer.forceTrigger();
+      //   break;
+      // }
+      // case JsonCommand::FOCUS_AND_TRIGGER: {
+      //   zj_u32_t f;
+      //   f.uint32 = cmd.focus;
+      //   zj_u32_t t;
+      //   t.uint32 = cmd.trigger;
+      //   camera.startShot(f, t);
+      //   isFocusing = true;
+      //   stateTimer.forceTrigger();
+      //   break;
+      // }
 
       case JsonCommand::SET_POS_X: {
         if (stepperX) {
@@ -1010,8 +1011,8 @@ void setup() {
   }
 
   // Camera
-  serialAndTelnet.println("[APP] Initialize Camera");
-  camera.setup(CAMERA_FOCUS_PIN, CAMERA_TRIGGER_PIN);
+  // serialAndTelnet.println("[APP] Initialize Camera");
+  // camera.setup(CAMERA_FOCUS_PIN, CAMERA_TRIGGER_PIN);
 
   // State publishing
   serialAndTelnet.println("[APP] State timer");
@@ -1063,7 +1064,7 @@ void loop() {
     processCmdChar(serialAndTelnet.read());
   }
   handleMqtt();
-  camera.handle();
+  // camera.handle();
 
   bool fastTimer = false;
   if (stepperX) {
@@ -1091,14 +1092,14 @@ void loop() {
     }
   }
 
-  if (camera.isFocusing() != isFocusing || camera.isTriggering() != isTriggering) {
-    stateTimer.forceTrigger();
-    isFocusing = camera.isFocusing();
-    isTriggering = camera.isTriggering();
-    displayUpdateRequired = true;
-  }
+  // if (camera.isFocusing() != isFocusing || camera.isTriggering() != isTriggering) {
+  //   stateTimer.forceTrigger();
+  //   isFocusing = camera.isFocusing();
+  //   isTriggering = camera.isTriggering();
+  //   displayUpdateRequired = true;
+  // }
+  // fastTimer |= camera.isActive();
 
-  fastTimer |= camera.isActive();
   stateTimer.setPeriodMs(fastTimer ? 500 : 5000);
   stateTimer.handle();
 
