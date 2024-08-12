@@ -541,9 +541,9 @@ void handleMqtt() {
 
       // Subscribe to command topic
       serialAndTelnet.print("[MQTT] subscribe to '");
-      serialAndTelnet.print(deviceName + "/cmd");
+      serialAndTelnet.print(mqttPrefix + "/cmd");
       serialAndTelnet.println("'");
-      mqtt.subscribe((deviceName + "/cmd").c_str());
+      mqtt.subscribe((mqttPrefix + "/cmd").c_str());
 
     } else {
       serialAndTelnet.print("[MQTT] Connection error, rc=");
