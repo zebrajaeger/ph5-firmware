@@ -1124,6 +1124,7 @@ void loop() {
     if (r != isRunningX) {
       isRunningX = r;
       stateTimer.forceTrigger();
+      udpStateTimer.forceTrigger();
     }
   }
 
@@ -1136,6 +1137,7 @@ void loop() {
     if (r != isRunningY) {
       isRunningY = r;
       stateTimer.forceTrigger();
+      udpStateTimer.forceTrigger();
       displayUpdateRequired = true;
     }
   }
