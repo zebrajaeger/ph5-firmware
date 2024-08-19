@@ -1,5 +1,7 @@
 #include "ph5.h"
 
+#include "timer.h"
+
 // Network log
 #include <TelnetSpy.h>
 TelnetSpy serialAndTelnet;
@@ -43,10 +45,10 @@ String deviceName = F("actor");
 String AP_SSID = F("actor-AP");
 ESPAsync_WiFiManager_Lite* ESPAsync_WiFiManager;
 
-// Improv
-#define IMPROV_DEBUG true
-#include <ImprovWiFiLibrary.h>
-ImprovWiFi improvSerial(&serialAndTelnet);
+// // Improv
+// #define IMPROV_DEBUG true
+// #include <ImprovWiFiLibrary.h>
+// ImprovWiFi improvSerial(&serialAndTelnet);
 
 // OTA
 #include <ArduinoOTA.h>
@@ -102,8 +104,7 @@ Adafruit_SSD1306 display(128, 64, &Wire, -1);
 bool displayUpdateRequired = true;
 unsigned long displayLastUpdate = 0;
 
-// Status
-#include "timer.h"
+// Status (MQTT)
 class StateTimer : public IntervalTimer {
   virtual void onTimer() {
     String tmp;
@@ -119,6 +120,50 @@ class StateTimer : public IntervalTimer {
   }
 };
 StateTimer stateTimer;
+
+// Status (UDP)
+#include "AsyncUDP.h"
+AsyncUDP udp;
+struct UdpMsg {
+  byte id[4];
+  int32_t x;
+  int32_t y;
+  uint8_t active;
+};
+
+// TODO put in config
+IPAddress udpStateTarget1(192, 168, 178, 31);
+uint16_t udpStateTargetPort1 = 12345;
+
+IPAddress udpStateTarget2(192, 168, 1, 205);
+uint16_t udpStateTargetPort2 = 12345;
+
+uint16_t udpStatePeriodMs = 100;
+
+class UdpStateTimer : public IntervalTimer {
+  virtual void onTimer() {
+    if(!stepperX || !stepperY){
+      return;
+    }
+    
+    UdpMsg msg;
+    msg.id[0] = 'p';
+    msg.id[1] = 'h';
+    msg.id[2] = '5';
+    msg.id[3] = 0;
+    msg.x = stepperX->getCurrentPosition();
+    // msg.x = 256*256;
+    // msg.y = 123456;
+    msg.y = stepperY->getCurrentPosition();
+    msg.active = stepperX->isRunning() | stepperY->isRunning() << 1;
+
+    udp.writeTo((uint8_t*)&msg, sizeof(UdpMsg), udpStateTarget1, udpStateTargetPort1);
+    udp.writeTo((uint8_t*)&msg, sizeof(UdpMsg), udpStateTarget2, udpStateTargetPort2);
+    // Serial.println(sizeof(UdpMsg));
+  }
+};
+
+UdpStateTimer udpStateTimer;
 
 // CLI
 #include <SimpleCLI.h>
@@ -324,32 +369,32 @@ void processJsonCommand(JsonCommand& cmd) {
         break;
       }
 
-      // case JsonCommand::FOCUS: {
-      //   zj_u32_t f;
-      //   f.uint32 = cmd.focus;
-      //   camera.startFocus(f);
-      //   isFocusing = true;
-      //   stateTimer.forceTrigger();
-      //   break;
-      // }
-      // case JsonCommand::TRIGGER: {
-      //   zj_u32_t t;
-      //   t.uint32 = cmd.trigger;
-      //   camera.startTrigger(t);
-      //   isTriggering = true;
-      //   stateTimer.forceTrigger();
-      //   break;
-      // }
-      // case JsonCommand::FOCUS_AND_TRIGGER: {
-      //   zj_u32_t f;
-      //   f.uint32 = cmd.focus;
-      //   zj_u32_t t;
-      //   t.uint32 = cmd.trigger;
-      //   camera.startShot(f, t);
-      //   isFocusing = true;
-      //   stateTimer.forceTrigger();
-      //   break;
-      // }
+        // case JsonCommand::FOCUS: {
+        //   zj_u32_t f;
+        //   f.uint32 = cmd.focus;
+        //   camera.startFocus(f);
+        //   isFocusing = true;
+        //   stateTimer.forceTrigger();
+        //   break;
+        // }
+        // case JsonCommand::TRIGGER: {
+        //   zj_u32_t t;
+        //   t.uint32 = cmd.trigger;
+        //   camera.startTrigger(t);
+        //   isTriggering = true;
+        //   stateTimer.forceTrigger();
+        //   break;
+        // }
+        // case JsonCommand::FOCUS_AND_TRIGGER: {
+        //   zj_u32_t f;
+        //   f.uint32 = cmd.focus;
+        //   zj_u32_t t;
+        //   t.uint32 = cmd.trigger;
+        //   camera.startShot(f, t);
+        //   isFocusing = true;
+        //   stateTimer.forceTrigger();
+        //   break;
+        // }
 
       case JsonCommand::SET_POS_X: {
         if (stepperX) {
@@ -1047,6 +1092,9 @@ void setup() {
   cmdSwitchXY = cli.addCommand("switchxy", cliSwitchXY);
 
   cmdHelp = cli.addCommand("help", cliHelpCallback);
+
+  // UDP Status
+  udpStateTimer.start(udpStatePeriodMs);
 }
 
 unsigned long t = millis();
@@ -1102,6 +1150,8 @@ void loop() {
 
   stateTimer.setPeriodMs(fastTimer ? 500 : 5000);
   stateTimer.handle();
+
+  udpStateTimer.handle();
 
   handleDisplay();
 }
