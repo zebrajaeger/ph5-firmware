@@ -59,7 +59,6 @@ ESPAsync_WiFiManager_Lite* ESPAsync_WiFiManager;
 #include <PubSubClient.h>
 #include <WiFi.h>
 
-// #include "jsonCommand.h"
 #include "ph5command.h"
 String mqttPrefix = F("ph5");
 WiFiClient espClient;
@@ -117,10 +116,7 @@ AsyncUDP udp;
 
 // Broadcast (UDP)
 class PresentBroadcastTimer : public IntervalTimer {
-  virtual void onTimer() {
-    udp.broadcastTo((uint8_t*)"ph5\0p\0\0\0", 8, broadcastPort);
-    // Serial.println("Send present message");
-  }
+  virtual void onTimer() { udp.broadcastTo((uint8_t*)"ph5\0p\0\0\0", 8, broadcastPort); }
 };
 PresentBroadcastTimer presentBroadcastTimer;
 
@@ -652,23 +648,24 @@ void handleDisplay() {
   }
 
   // WiFi IP
-  // u8g2.setCursor(30, 12);
   u8g2.setFont(u8g2_font_helvR08_tf);
   u8g2.print(WiFi.localIP().toString());
 
   // MQTT
-  u8g2.setCursor(0, 30);
-  u8g2.print("M ");
-  if (WiFi.isConnected()) {
-    if (mqtt.connected()) {
-      u8g2.print(preferences.getString(mqttServerIndex == 0 ? PREF_MQTT_1_HOST : PREF_MQTT_2_HOST));
+  if (enableMqtt) {
+    u8g2.setCursor(0, 30);
+    u8g2.print("M ");
+    if (WiFi.isConnected()) {
+      if (mqtt.connected()) {
+        u8g2.print(preferences.getString(mqttServerIndex == 0 ? PREF_MQTT_1_HOST : PREF_MQTT_2_HOST));
+      } else {
+        u8g2.print("[");
+        u8g2.print(preferences.getString(mqttServerIndex == 0 ? PREF_MQTT_1_HOST : PREF_MQTT_2_HOST));
+        u8g2.print("]");
+      }
     } else {
-      u8g2.print("[");
-      u8g2.print(preferences.getString(mqttServerIndex == 0 ? PREF_MQTT_1_HOST : PREF_MQTT_2_HOST));
-      u8g2.print("]");
+      u8g2.print("-");
     }
-  } else {
-    u8g2.print("-");
   }
 
   // X
@@ -709,19 +706,6 @@ void handleDisplay() {
     u8g2.print(stepperY->getCurrentPosition());
   }
 
-  // MQTT Connection
-  // u8g2.setFont(u8g2_font_helvR08_tf);
-  // u8g2.setCursor(110, 60);
-  // if (mqtt.connected()) {
-  //   u8g2.setForegroundColor(BLACK);
-  //   u8g2.setBackgroundColor(WHITE);
-  // } else {
-  //   u8g2.setForegroundColor(WHITE);
-  //   u8g2.setBackgroundColor(BLACK);
-  // }
-  // // u8g2.print("M");
-  // u8g2.print(mqttServerIndex==0 ? mqttServer1 : mqttServer2);
-
   display.display();
 }
 
@@ -741,9 +725,8 @@ void cliHelpCallback(cmd* c) {
 void cliMqttCallback(cmd* c) {
   Command cmd(c);
 
-  long nr = cmd.getArgument("nr").getValue().toInt();  // TODO check if empty
+  long nr = cmd.getArgument("nr").getValue().toInt();
   String host = cmd.getArgument("host").getValue();
-  // Argument port      = cmd.getArgument("port");
 
   if (nr == 1) {
     serialAndTelnet.print("Set mqttServer1 to ");
@@ -916,8 +899,6 @@ void handleWebSocketMessage(void* arg, uint8_t* data, size_t len) {
 
 void onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data,
                       size_t len) {
-  // Serial.print("WS-Event:");
-  // Serial.println(type);
   switch (type) {
     case WS_EVT_CONNECT:
       Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
