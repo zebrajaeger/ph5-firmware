@@ -1,10 +1,17 @@
 #include "ph5.h"
 
+#include "config.h"
 #include "timer.h"
 
 // Network log
 #include <TelnetSpy.h>
 TelnetSpy serialAndTelnet;
+
+//  WS
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+AsyncWebServer server(websocketPort);
+AsyncWebSocket ws(websocketUrl);
 
 // DoubleresetDetector
 #define DOUBLERESETDETECTOR_DEBUG false
@@ -45,11 +52,6 @@ String deviceName = F("actor");
 String AP_SSID = F("actor-AP");
 ESPAsync_WiFiManager_Lite* ESPAsync_WiFiManager;
 
-// // Improv
-// #define IMPROV_DEBUG true
-// #include <ImprovWiFiLibrary.h>
-// ImprovWiFi improvSerial(&serialAndTelnet);
-
 // OTA
 #include <ArduinoOTA.h>
 
@@ -57,8 +59,9 @@ ESPAsync_WiFiManager_Lite* ESPAsync_WiFiManager;
 #include <PubSubClient.h>
 #include <WiFi.h>
 
-#include "jsonCommand.h"
+// #include "jsonCommand.h"
 #include "jsonStatus.h"
+#include "ph5command.h"
 String mqttPrefix = F("ph5");
 WiFiClient espClient;
 PubSubClient mqtt(espClient);
@@ -94,7 +97,6 @@ bool isRunningY = false;
 // Display
 // #define DISPLAY_DEBUG true
 #define DISPLAY_ADDRESS 0x3C
-// #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 // select u8g2 font from here: https://github.com/olikraus/u8g2/wiki/fntlistall
 #include <U8g2_for_Adafruit_GFX.h>
@@ -119,51 +121,84 @@ class StateTimer : public IntervalTimer {
     // mqtt.publish((mqttPrefix + "/camera").c_str(), tmp.c_str());
   }
 };
+
 StateTimer stateTimer;
 
-// Status (UDP)
+// UDP
 #include "AsyncUDP.h"
 AsyncUDP udp;
-struct UdpMsg {
-  byte id[4];
+
+// Broadcast (UDP)
+class PresentBroadcastTimer : public IntervalTimer {
+  virtual void onTimer() {
+    udp.broadcastTo((uint8_t*)"ph5\0p\0\0\0", 8, broadcastPort);
+    // Serial.println("Send present message");
+  }
+};
+PresentBroadcastTimer presentBroadcastTimer;
+
+// Status (UDP)
+struct WSStatusMsg {
   int32_t x;
   int32_t y;
-  uint8_t active;
+  uint32_t active;
 };
 
-// TODO put in config
-IPAddress udpStateTarget1(192, 168, 178, 31);
-uint16_t udpStateTargetPort1 = 12345;
+struct UdpStatusMsg {
+  const char magicHeader[8] = {'p', 'h', '5', 0, 's', 0, 0, 0};
+  WSStatusMsg data;
+};
 
-IPAddress udpStateTarget2(192, 168, 1, 205);
-uint16_t udpStateTargetPort2 = 12345;
+void notifyClients(const WSStatusMsg& msg);
 
-uint16_t udpStatePeriodMs = 100;
-
-class UdpStateTimer : public IntervalTimer {
+class BroadcastStatusTimer : public IntervalTimer {
   virtual void onTimer() {
-    if(!stepperX || !stepperY){
+    if (!stepperX || !stepperY) {
       return;
     }
-    
-    UdpMsg msg;
-    msg.id[0] = 'p';
-    msg.id[1] = 'h';
-    msg.id[2] = '5';
-    msg.id[3] = 0;
-    msg.x = stepperX->getCurrentPosition();
-    // msg.x = 256*256;
-    // msg.y = 123456;
-    msg.y = stepperY->getCurrentPosition();
-    msg.active = stepperX->isRunning() | stepperY->isRunning() << 1;
 
-    udp.writeTo((uint8_t*)&msg, sizeof(UdpMsg), udpStateTarget1, udpStateTargetPort1);
-    udp.writeTo((uint8_t*)&msg, sizeof(UdpMsg), udpStateTarget2, udpStateTargetPort2);
-    // Serial.println(sizeof(UdpMsg));
+    UdpStatusMsg msg;
+    // msg.data.x = 123456;
+    // msg.data.y = 666;
+    // msg.data.active = 2;
+    msg.data.x = stepperX->getCurrentPosition();
+    msg.data.y = stepperY->getCurrentPosition();
+    msg.data.active = stepperX->isRunning() | stepperY->isRunning() << 1;
+
+    // Serial.println("-----------------");
+    // for (uint8_t i = 0; i < sizeof(UdpStatusMsg); ++i) {
+    //   Serial.print(i);
+    //   Serial.print(": ");
+    //   const char* c = (const char*)&msg;
+    //   Serial.print(c[i]);
+    //   Serial.print("/");
+    //   Serial.print((uint8_t)c[i]);
+    //   Serial.print("/");
+    //   Serial.println(c[i], HEX);
+    // }
+    // Serial.println("-----------------");
+    // msg.x = 0;
+    // for (uint8_t i = 0; i < sizeof(UdpStatusMsg); ++i) {
+    //   Serial.print(i);
+    //   Serial.print(": ");
+    //   const char* c = (const char*)&msg;
+    //   Serial.print(c[i]);
+    //   Serial.print("/");
+    //   Serial.print((uint8_t)c[i]);
+    //   Serial.print("/");
+    //   Serial.println(c[i], HEX);
+    // }
+    // for(;;);
+    if (sendBroadcastStatus) {
+      udp.broadcastTo((uint8_t*)&msg, sizeof(UdpStatusMsg), broadcastPort);
+    }
+    if (sendWebsocketStatus) {
+      notifyClients(msg.data);
+    }
   }
 };
 
-UdpStateTimer udpStateTimer;
+BroadcastStatusTimer broadcastStatusTimer;
 
 // CLI
 #include <SimpleCLI.h>
@@ -184,260 +219,271 @@ char cliBuffer[CLI_BUFFER_SIZE];
 
 // PH5 Firmware
 
-bool setImprovCredentials(const char* ssid, const char* password) {
-  // TODO write to ESPAsync_WiFiManager_Lite config, save it and then reconnect
-  serialAndTelnet.print("[Improv] New WIFI credentials: ");
-  serialAndTelnet.print(ssid);
-  serialAndTelnet.print("/");
-  serialAndTelnet.println(password);
-  return true;
-}
-
 void telnetConnected() { serialAndTelnet.println(F("[Telnet] connection established.")); }
 
 void telnetDisconnected() { serialAndTelnet.println(F("[Telnet] connection closed.")); }
 
 void disconnectClientWrapper() { serialAndTelnet.disconnectClient(); }
 
-void processJsonCommand(JsonCommand& cmd) {
+void processCommand(Ph5Command* cmd) {
   serialAndTelnet.print("[CMD] ");
-  serialAndTelnet.println(cmd.toString());
+  serialAndTelnet.println(cmd->toString());
 
-  if (cmd.valid) {
-    displayUpdateRequired = true;
-    switch (cmd.cmd) {
-      case JsonCommand::MOVE_X: {
-        if (stepperX) {
-          if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-            isRunningX = stepperX->move(cmd.x) == MOVE_OK;
-            serialAndTelnet.print("[Stepper] MoveX (1): ");
-            serialAndTelnet.println(isRunningX);
-            stateTimer.forceTrigger();
-          }
-        }
-        break;
-      }
-      case JsonCommand::MOVE_Y: {
-        if (stepperY) {
-          if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
-            isRunningY = stepperY->move(cmd.y) == MOVE_OK;
-            serialAndTelnet.print("[Stepper] MoveY (1): ");
-            serialAndTelnet.println(isRunningY);
-            stateTimer.forceTrigger();
-          }
-        }
-        break;
-      }
-      case JsonCommand::MOVE_XY: {
-        if (stepperX) {
-          if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-            isRunningX = stepperX->move(cmd.x) == MOVE_OK;
-            serialAndTelnet.print("[Stepper] MoveX (2): ");
-            serialAndTelnet.println(isRunningX);
-            stateTimer.forceTrigger();
-          }
-        }
-        if (stepperY) {
-          if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-            isRunningY = stepperY->move(cmd.y) == MOVE_OK;
-            serialAndTelnet.print("[Stepper] MoveY (2): ");
-            serialAndTelnet.println(isRunningY);
-            stateTimer.forceTrigger();
-          }
-        }
-        break;
-      }
-
-      case JsonCommand::SPEED_X: {
-        if (stepperX) {
-          if (cmd.speedX > 0) {
-            if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-              isRunningX = stepperX->runForward() == MOVE_OK;
-            }
-          } else {
-            if (stepperX->setSpeedInHz(-cmd.speedX) == 0) {
-              isRunningX = stepperX->runBackward() == MOVE_OK;
-            }
-          }
-          serialAndTelnet.println("[Stepper] SpeedX");
+  displayUpdateRequired = true;
+  switch (cmd->getType()) {
+    case Ph5CommandType::MOVE_X: {
+      if (stepperX) {
+        if (stepperX->setSpeedInHz(cmd->getSpeedX()) == 0) {
+          isRunningX = stepperX->move(cmd->getPosX()) == MOVE_OK;
+          serialAndTelnet.print("[Stepper] MoveX (1): ");
+          serialAndTelnet.println(isRunningX);
           stateTimer.forceTrigger();
         }
-        break;
       }
-      case JsonCommand::SPEED_Y: {
-        if (stepperY) {
-          if (cmd.speedY > 0) {
-            if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
-              isRunningY = stepperY->runForward() == MOVE_OK;
-            }
-          } else {
-            if (stepperY->setSpeedInHz(-cmd.speedY) == 0) {
-              isRunningY = stepperY->runBackward() == MOVE_OK;
-            }
-          }
-          serialAndTelnet.println("[Stepper] SpeedY");
-          stateTimer.forceTrigger();
-        }
-        break;
-      }
-      case JsonCommand::SPEED_XY: {
-        if (stepperX) {
-          if (cmd.speedX > 0) {
-            if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-              isRunningX = stepperX->runForward() == MOVE_OK;
-            }
-          } else {
-            if (stepperX->setSpeedInHz(-cmd.speedX) == 0) {
-              isRunningX = stepperX->runBackward() == MOVE_OK;
-            }
-          }
-          serialAndTelnet.println("[Stepper] SpeedX");
-          stateTimer.forceTrigger();
-        }
-        if (stepperY) {
-          if (cmd.speedY > 0) {
-            if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
-              isRunningY = stepperY->runForward() == MOVE_OK;
-            }
-          } else {
-            if (stepperY->setSpeedInHz(-cmd.speedY) == 0) {
-              isRunningY = stepperY->runBackward() == MOVE_OK;
-            }
-          }
-          serialAndTelnet.println("[Stepper] SpeedY");
-          stateTimer.forceTrigger();
-        }
-        break;
-      }
-
-      case JsonCommand::MOVE_TO_X: {
-        if (stepperX) {
-          if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-            isRunningX = stepperX->moveTo(cmd.x) == MOVE_OK;
-            serialAndTelnet.println("[Stepper] MoveToX");
-            stateTimer.forceTrigger();
-          }
-        }
-        break;
-      }
-      case JsonCommand::MOVE_TO_Y: {
-        if (stepperY) {
-          if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
-            isRunningY = stepperY->moveTo(cmd.y) == MOVE_OK;
-            serialAndTelnet.println("[Stepper] MoveToY");
-            stateTimer.forceTrigger();
-          }
-        }
-        break;
-      }
-      case JsonCommand::MOVE_TO_XY: {
-        if (stepperX) {
-          if (stepperX->setSpeedInHz(cmd.speedX) == 0) {
-            isRunningX = stepperX->moveTo(cmd.x) == MOVE_OK;
-            serialAndTelnet.println("[Stepper] MoveToX");
-            stateTimer.forceTrigger();
-          }
-        }
-        if (stepperY) {
-          if (stepperY->setSpeedInHz(cmd.speedY) == 0) {
-            isRunningY = stepperY->moveTo(cmd.y) == MOVE_OK;
-            serialAndTelnet.println("[Stepper] MoveToY");
-            stateTimer.forceTrigger();
-          }
-        }
-        break;
-      }
-
-      case JsonCommand::STOP: {
-        if (stepperX) {
-          stepperX->stopMove();
-        }
-        if (stepperY) {
-          stepperY->stopMove();
-        }
-        stateTimer.forceTrigger();
-        break;
-      }
-      case JsonCommand::FORCE_STOP: {
-        if (stepperX) {
-          stepperX->forceStop();
-        }
-        if (stepperY) {
-          stepperY->forceStop();
-        }
-        stateTimer.forceTrigger();
-        break;
-      }
-
-        // case JsonCommand::FOCUS: {
-        //   zj_u32_t f;
-        //   f.uint32 = cmd.focus;
-        //   camera.startFocus(f);
-        //   isFocusing = true;
-        //   stateTimer.forceTrigger();
-        //   break;
-        // }
-        // case JsonCommand::TRIGGER: {
-        //   zj_u32_t t;
-        //   t.uint32 = cmd.trigger;
-        //   camera.startTrigger(t);
-        //   isTriggering = true;
-        //   stateTimer.forceTrigger();
-        //   break;
-        // }
-        // case JsonCommand::FOCUS_AND_TRIGGER: {
-        //   zj_u32_t f;
-        //   f.uint32 = cmd.focus;
-        //   zj_u32_t t;
-        //   t.uint32 = cmd.trigger;
-        //   camera.startShot(f, t);
-        //   isFocusing = true;
-        //   stateTimer.forceTrigger();
-        //   break;
-        // }
-
-      case JsonCommand::SET_POS_X: {
-        if (stepperX) {
-          if (!stepperX->isRunning()) {
-            stepperX->setCurrentPosition(cmd.x);
-            stateTimer.forceTrigger();
-          }
-        }
-        break;
-      }
-      case JsonCommand::SET_POS_Y: {
-        if (stepperY) {
-          if (!stepperY->isRunning()) {
-            stepperY->setCurrentPosition(cmd.x);
-            displayUpdateRequired = true;
-            stateTimer.forceTrigger();
-          }
-        }
-        break;
-      }
-      case JsonCommand::SET_POS_XY: {
-        if (stepperX) {
-          if (!stepperX->isRunning()) {
-            stepperX->setCurrentPosition(cmd.x);
-            displayUpdateRequired = true;
-            stateTimer.forceTrigger();
-          }
-        }
-        if (stepperY) {
-          if (!stepperY->isRunning()) {
-            stepperY->setCurrentPosition(cmd.x);
-            displayUpdateRequired = true;
-            stateTimer.forceTrigger();
-          }
-        }
-        break;
-      }
-
-      case JsonCommand::UNKNOWN:
-      default:
-        // TODO
-        break;
+      break;
     }
+    case Ph5CommandType::MOVE_Y: {
+      if (stepperY) {
+        if (stepperY->setSpeedInHz(cmd->getSpeedY()) == 0) {
+          isRunningY = stepperY->move(cmd->getPosX()) == MOVE_OK;
+          serialAndTelnet.print("[Stepper] MoveY (1): ");
+          serialAndTelnet.println(isRunningY);
+          stateTimer.forceTrigger();
+        }
+      }
+      break;
+    }
+    case Ph5CommandType::MOVE_XY: {
+      if (stepperX) {
+        if (stepperX->setSpeedInHz(cmd->getSpeedX()) == 0) {
+          isRunningX = stepperX->move(cmd->getPosX()) == MOVE_OK;
+          serialAndTelnet.print("[Stepper] MoveX (2): ");
+          serialAndTelnet.println(isRunningX);
+          stateTimer.forceTrigger();
+        }
+      }
+      if (stepperY) {
+        if (stepperY->setSpeedInHz(cmd->getSpeedY()) == 0) {
+          isRunningY = stepperY->move(cmd->getPosY()) == MOVE_OK;
+          serialAndTelnet.print("[Stepper] MoveY (2): ");
+          serialAndTelnet.println(isRunningY);
+          stateTimer.forceTrigger();
+        }
+      }
+      break;
+    }
+
+    case Ph5CommandType::SPEED_X: {
+      if (stepperX) {
+        if (cmd->getSpeedX() > 0) {
+          if (stepperX->setSpeedInHz(cmd->getSpeedX()) == 0) {
+            isRunningX = stepperX->runForward() == MOVE_OK;
+          }
+        } else {
+          if (stepperX->setSpeedInHz(-cmd->getSpeedX()) == 0) {
+            isRunningX = stepperX->runBackward() == MOVE_OK;
+          }
+        }
+        serialAndTelnet.println("[Stepper] SpeedX");
+        stateTimer.forceTrigger();
+      }
+      break;
+    }
+    case Ph5CommandType::SPEED_Y: {
+      if (stepperY) {
+        if (cmd->getSpeedY() > 0) {
+          if (stepperY->setSpeedInHz(cmd->getSpeedY()) == 0) {
+            isRunningY = stepperY->runForward() == MOVE_OK;
+          }
+        } else {
+          if (stepperY->setSpeedInHz(-cmd->getSpeedY()) == 0) {
+            isRunningY = stepperY->runBackward() == MOVE_OK;
+          }
+        }
+        serialAndTelnet.println("[Stepper] SpeedY");
+        stateTimer.forceTrigger();
+      }
+      break;
+    }
+    case Ph5CommandType::SPEED_XY: {
+      if (stepperX) {
+        if (cmd->getSpeedX() > 0) {
+          if (stepperX->setSpeedInHz(cmd->getSpeedX()) == 0) {
+            isRunningX = stepperX->runForward() == MOVE_OK;
+          }
+        } else {
+          if (stepperX->setSpeedInHz(-cmd->getSpeedX()) == 0) {
+            isRunningX = stepperX->runBackward() == MOVE_OK;
+          }
+        }
+        serialAndTelnet.println("[Stepper] SpeedX");
+        stateTimer.forceTrigger();
+      }
+      if (stepperY) {
+        if (cmd->getSpeedY() > 0) {
+          if (stepperY->setSpeedInHz(cmd->getSpeedY()) == 0) {
+            isRunningY = stepperY->runForward() == MOVE_OK;
+          }
+        } else {
+          if (stepperY->setSpeedInHz(-cmd->getSpeedY()) == 0) {
+            isRunningY = stepperY->runBackward() == MOVE_OK;
+          }
+        }
+        serialAndTelnet.println("[Stepper] SpeedY");
+        stateTimer.forceTrigger();
+      }
+      break;
+    }
+
+    case Ph5CommandType::MOVE_TO_X: {
+      if (stepperX) {
+        if (stepperX->setSpeedInHz(cmd->getSpeedX()) == 0) {
+          isRunningX = stepperX->moveTo(cmd->getPosX()) == MOVE_OK;
+          serialAndTelnet.println("[Stepper] MoveToX");
+          stateTimer.forceTrigger();
+        }
+      }
+      break;
+    }
+    case Ph5CommandType::MOVE_TO_Y: {
+      if (stepperY) {
+        if (stepperY->setSpeedInHz(cmd->getSpeedY()) == 0) {
+          isRunningY = stepperY->moveTo(cmd->getPosY()) == MOVE_OK;
+          serialAndTelnet.println("[Stepper] MoveToY");
+          stateTimer.forceTrigger();
+        }
+      }
+      break;
+    }
+    case Ph5CommandType::MOVE_TO_XY: {
+      if (stepperX) {
+        if (stepperX->setSpeedInHz(cmd->getSpeedX()) == 0) {
+          isRunningX = stepperX->moveTo(cmd->getPosX()) == MOVE_OK;
+          serialAndTelnet.println("[Stepper] MoveToX");
+          stateTimer.forceTrigger();
+        }
+      }
+      if (stepperY) {
+        if (stepperY->setSpeedInHz(cmd->getSpeedY()) == 0) {
+          isRunningY = stepperY->moveTo(cmd->getPosX()) == MOVE_OK;
+          serialAndTelnet.println("[Stepper] MoveToY");
+          stateTimer.forceTrigger();
+        }
+      }
+      break;
+    }
+
+    case Ph5CommandType::STOP_X: {
+      if (stepperX) {
+        stepperX->stopMove();
+      }
+      stateTimer.forceTrigger();
+      break;
+    }
+    case Ph5CommandType::STOP_Y: {
+      if (stepperY) {
+        stepperY->stopMove();
+      }
+      stateTimer.forceTrigger();
+      break;
+    }
+    case Ph5CommandType::STOP_XY: {
+      if (stepperX) {
+        stepperX->stopMove();
+      }
+      if (stepperY) {
+        stepperY->stopMove();
+      }
+      stateTimer.forceTrigger();
+      break;
+    }
+
+    case Ph5CommandType::FORCE_STOP: {
+      if (stepperX) {
+        stepperX->forceStop();
+      }
+      if (stepperY) {
+        stepperY->forceStop();
+      }
+      stateTimer.forceTrigger();
+      break;
+    }
+
+      // case JsonCommand::FOCUS: {
+      //   zj_u32_t f;
+      //   f.uint32 = cmd.focus;
+      //   camera.startFocus(f);
+      //   isFocusing = true;
+      //   stateTimer.forceTrigger();
+      //   break;
+      // }
+      // case JsonCommand::TRIGGER: {
+      //   zj_u32_t t;
+      //   t.uint32 = cmd.trigger;
+      //   camera.startTrigger(t);
+      //   isTriggering = true;
+      //   stateTimer.forceTrigger();
+      //   break;
+      // }
+      // case JsonCommand::FOCUS_AND_TRIGGER: {
+      //   zj_u32_t f;
+      //   f.uint32 = cmd.focus;
+      //   zj_u32_t t;
+      //   t.uint32 = cmd.trigger;
+      //   camera.startShot(f, t);
+      //   isFocusing = true;
+      //   stateTimer.forceTrigger();
+      //   break;
+      // }
+
+    case Ph5CommandType::SET_POS_X: {
+      if (stepperX) {
+        if (!stepperX->isRunning()) {
+          stepperX->setCurrentPosition(cmd->getPosX());
+          stateTimer.forceTrigger();
+        }
+      }
+      break;
+    }
+    case Ph5CommandType::SET_POS_Y: {
+      if (stepperY) {
+        if (!stepperY->isRunning()) {
+          stepperY->setCurrentPosition(cmd->getPosY());
+          displayUpdateRequired = true;
+          stateTimer.forceTrigger();
+        }
+      }
+      break;
+    }
+    case Ph5CommandType::SET_POS_XY: {
+      if (stepperX) {
+        if (!stepperX->isRunning()) {
+          stepperX->setCurrentPosition(cmd->getPosX());
+          displayUpdateRequired = true;
+          stateTimer.forceTrigger();
+        }
+      }
+      if (stepperY) {
+        if (!stepperY->isRunning()) {
+          stepperY->setCurrentPosition(cmd->getPosY());
+          displayUpdateRequired = true;
+          stateTimer.forceTrigger();
+        }
+      }
+      break;
+    }
+
+    case Ph5CommandType::PING:
+      cmd->setType(Ph5CommandType::PONG);
+      break;
+
+    case Ph5CommandType::UNKNOWN:
+      // we ignore it?
+      break;
+
+    default:
+      // TODO do something. Logging?
+      break;
   }
 }
 
@@ -453,11 +499,45 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   serialAndTelnet.print(msg);
   serialAndTelnet.println("'");
 
-  JsonCommand cmd;
+  Ph5Command cmd;
   if (!jsonCommandParser.parse((char*)payload, cmd)) {
-    processJsonCommand(cmd);
+    processCommand(&cmd);
   } else {
     serialAndTelnet.println("[JSON] Error: Command is invalid");
+  }
+}
+
+namespace UdpPacket {
+bool isMagicHeaderPh5(const uint8_t* data) {
+  return data[0] == 'p' && data[1] == 'h' && data[2] == '5' && data[3] == 0;
+}
+bool isMagicHeaderCommand(const uint8_t* data) { return data[4] == 'c' && data[5] == 0; }
+bool isMagicHeaderConfig(const uint8_t* data) { return data[4] == 'o' && data[5] == 0; }
+const uint8_t* getDataPointer(const uint8_t* data) { return &(data[6]); }
+}  // namespace UdpPacket
+
+void commandReceiverSetup() {
+  if (udp.listen(cmdPort)) {
+    udp.onPacket([](AsyncUDPPacket packet) {
+      // we accept only unicast packets
+      if (!packet.isBroadcast() && !packet.isMulticast()) {
+        // with the correct length
+        if (packet.length() == sizeof(Command)) {
+          // Only with the magic header
+          if (UdpPacket::isMagicHeaderPh5(packet.data())) {
+            // And only commands so far
+            if (UdpPacket::isMagicHeaderCommand(packet.data())) {
+              Ph5Command* cmd = (Ph5Command*)packet.data();
+              processCommand(cmd);
+              // send back as 'ack'
+              udp.writeTo(packet.data(), packet.length(), packet.remoteIP(), cmdPort);
+            } else if (UdpPacket::isMagicHeaderConfig(packet.data())) {
+              udp.writeTo(packet.data(), packet.length(), packet.remoteIP(), cmdPort);
+            }
+          }
+        }
+      };
+    });
   }
 }
 
@@ -797,27 +877,26 @@ void cliMoveCallback(cmd* c) {
   Argument x = cmd.getArgument("x");
   Argument y = cmd.getArgument("y");
 
-  JsonCommand jc;
-  jc.valid = true;
+  Ph5Command jc;
   if (x.isSet() && y.isSet()) {
-    jc.cmd = JsonCommand::MOVE_XY;
-    jc.x = x.getValue().toInt();
-    jc.speedX = 1000;
-    jc.y = y.getValue().toInt();
-    jc.speedY = 1000;
-    processJsonCommand(jc);
+    jc.setType(Ph5CommandType::MOVE_XY);
+    jc.setPosX(x.getValue().toInt());
+    jc.setSpeedX(1000);
+    jc.setPosY(y.getValue().toInt());
+    jc.setSpeedY(1000);
+    processCommand(&jc);
 
   } else if (x.isSet()) {
-    jc.cmd = JsonCommand::MOVE_X;
-    jc.x = x.getValue().toInt();
-    jc.speedX = 1000;
-    processJsonCommand(jc);
+    jc.setType(Ph5CommandType::MOVE_X);
+    jc.setPosX(x.getValue().toInt());
+    jc.setSpeedX(1000);
+    processCommand(&jc);
 
   } else if (y.isSet()) {
-    jc.cmd = JsonCommand::MOVE_Y;
-    jc.y = y.getValue().toInt();
-    jc.speedY = 1000;
-    processJsonCommand(jc);
+    jc.setType(Ph5CommandType::MOVE_Y);
+    jc.setPosY(y.getValue().toInt());
+    jc.setSpeedY(1000);
+    processCommand(&jc);
   }
 }
 
@@ -915,6 +994,39 @@ void processCmdChar(char c) {
   }
 }
 
+void notifyClients(const WSStatusMsg& msg) { ws.binaryAll((const char*)&msg, sizeof(WSStatusMsg)); }
+
+void handleWebSocketMessage(void* arg, uint8_t* data, size_t len) {
+  AwsFrameInfo* info = (AwsFrameInfo*)arg;
+  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_BINARY) {
+    if (len == sizeof(Ph5Command)) {
+      Ph5Command* command = (Ph5Command*)data;
+      // Serial.println(command->toString());
+      processCommand(command);
+    }
+  }
+}
+
+void onWebSocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data,
+                      size_t len) {
+  // Serial.print("WS-Event:");
+  // Serial.println(type);
+  switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      break;
+    case WS_EVT_DISCONNECT:
+      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      break;
+    case WS_EVT_DATA:
+      handleWebSocketMessage(arg, data, len);
+      break;
+    case WS_EVT_PONG:
+    case WS_EVT_ERROR:
+      break;
+  }
+}
+
 void setup() {
   // Serial and Telnet
   serialAndTelnet.setWelcomeMsg(F("Welcome to the TelnetSpy example\r\n\n"));
@@ -979,12 +1091,6 @@ void setup() {
                                            preferences.getString(PREF_WIFI_2_PW));
   ESPAsync_WiFiManager->begin(deviceName.c_str());
 
-  // Improv
-  // // ESPAsync_WiFiManager->ESP_WM_LITE_config.board_name;
-  // serialAndTelnet.println("[APP] Initialize Improv");
-  // improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32, appName, appVersion, deviceName.c_str());
-  // improvSerial.setCustomConnectWiFi(setImprovCredentials);
-
   // OTA
   serialAndTelnet.println("[APP] Initialize OTA");
   ArduinoOTA.onStart([]() { serialAndTelnet.println("[OTA] Start"); });
@@ -1012,13 +1118,15 @@ void setup() {
   serialAndTelnet.println(WiFi.localIP());
 
   // MQTT
-  serialAndTelnet.println("[APP] Initialize MQTT");
-  serialAndTelnet.print("[MQTT] server1: ");
-  serialAndTelnet.println(preferences.getString(PREF_MQTT_1_HOST));
-  serialAndTelnet.print("[MQTT] server2: ");
-  serialAndTelnet.println(preferences.getString(PREF_MQTT_2_HOST));
-  mqtt.setSocketTimeout(5);  // 5 seconds
-  mqtt.setCallback(mqttCallback);
+  if (enableMqtt) {
+    serialAndTelnet.println("[APP] Initialize MQTT");
+    serialAndTelnet.print("[MQTT] server1: ");
+    serialAndTelnet.println(preferences.getString(PREF_MQTT_1_HOST));
+    serialAndTelnet.print("[MQTT] server2: ");
+    serialAndTelnet.println(preferences.getString(PREF_MQTT_2_HOST));
+    mqtt.setSocketTimeout(5);  // 5 seconds
+    mqtt.setCallback(mqttCallback);
+  }
 
   // Steppers
   serialAndTelnet.println("[APP] Initialize Steppers");
@@ -1060,10 +1168,11 @@ void setup() {
   // camera.setup(CAMERA_FOCUS_PIN, CAMERA_TRIGGER_PIN);
 
   // State publishing
-  serialAndTelnet.println("[APP] State timer");
-  stateTimer.start(10000);
-
-  stateTimer.forceTrigger();
+  if (sendMqttStatus) {
+    serialAndTelnet.println("[APP] State timer");
+    stateTimer.start(10000);
+    stateTimer.forceTrigger();
+  }
 
   // CLI
   cmdMqtt = cli.addCommand("mqtt", cliMqttCallback);
@@ -1093,16 +1202,30 @@ void setup() {
 
   cmdHelp = cli.addCommand("help", cliHelpCallback);
 
-  // UDP Status
-  udpStateTimer.start(udpStatePeriodMs);
+  // UDP Present broadcast
+  if (sendPresentBroadcast) {
+    presentBroadcastTimer.start(presentBroadcastPeriodMs);
+  }
+
+  // UDP Status broadcast
+  if (sendBroadcastStatus || sendWebsocketStatus) {
+    broadcastStatusTimer.start(broadcastStatePeriodMs);
+  }
+
+  // UDP command receiver
+  commandReceiverSetup();
+
+  // WS
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) { request->send(200, "text/html", "Hello!"); });
+  ws.onEvent(onWebSocketEvent);
+  server.addHandler(&ws);
+  server.begin();
 }
 
 unsigned long t = millis();
 
 void loop() {
   ESPAsync_WiFiManager->run();
-
-  // improvSerial.handleSerial();
 
   ArduinoOTA.handle();
   serialAndTelnet.handle();
@@ -1111,7 +1234,10 @@ void loop() {
   if (serialAndTelnet.available()) {
     processCmdChar(serialAndTelnet.read());
   }
-  handleMqtt();
+
+  if (enableMqtt) {
+    handleMqtt();
+  }
   // camera.handle();
 
   bool fastTimer = false;
@@ -1124,7 +1250,7 @@ void loop() {
     if (r != isRunningX) {
       isRunningX = r;
       stateTimer.forceTrigger();
-      udpStateTimer.forceTrigger();
+      broadcastStatusTimer.forceTrigger();
     }
   }
 
@@ -1137,7 +1263,7 @@ void loop() {
     if (r != isRunningY) {
       isRunningY = r;
       stateTimer.forceTrigger();
-      udpStateTimer.forceTrigger();
+      broadcastStatusTimer.forceTrigger();
       displayUpdateRequired = true;
     }
   }
@@ -1150,10 +1276,20 @@ void loop() {
   // }
   // fastTimer |= camera.isActive();
 
-  stateTimer.setPeriodMs(fastTimer ? 500 : 5000);
-  stateTimer.handle();
+  if (sendMqttStatus) {
+    stateTimer.setPeriodMs(fastTimer ? mqttStatusSlowPeriodMs : mqttStatusFastPeriodMs);
+    stateTimer.handle();
+  }
 
-  udpStateTimer.handle();
+  if (sendBroadcastStatus || sendWebsocketStatus) {
+    broadcastStatusTimer.handle();
+  }
+
+  if (sendPresentBroadcast) {
+    presentBroadcastTimer.handle();
+  }
 
   handleDisplay();
+
+  ws.cleanupClients();
 }

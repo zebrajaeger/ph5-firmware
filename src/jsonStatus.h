@@ -30,14 +30,14 @@ class JsonStatus {
     // doc.shrinkToFit();
   }
 
-  static void convert( Camera& camera, String& result) {
-    JsonDocument doc;
-    // doc["t"] = millis();
+  // static void convert( Camera& camera, String& result) {
+  //   JsonDocument doc;
+  //   // doc["t"] = millis();
 
-    doc["focus"] = camera.isFocusing();
-    doc["trigger"] = camera.isTriggering();
+  //   doc["focus"] = camera.isFocusing();
+  //   doc["trigger"] = camera.isTriggering();
 
-    serializeJson(doc, result);
-    // doc.shrinkToFit();
-  }
+  //   serializeJson(doc, result);
+  //   // doc.shrinkToFit();
+  // }
 };

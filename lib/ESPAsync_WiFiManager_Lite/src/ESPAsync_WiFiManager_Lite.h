@@ -328,7 +328,7 @@
   #include <ESP_DoubleResetDetector.h>      //https://github.com/khoih-prog/ESP_DoubleResetDetector
 
   //DoubleResetDetector drd(DRD_TIMEOUT, DRD_ADDRESS);
-  DoubleResetDetector* drd;
+  // DoubleResetDetector* drd;
 
   ///////// NEW for DRD /////////////
 
@@ -673,18 +673,18 @@ class ESPAsync_WiFiManager_Lite
       if (mrd->detectMultiReset())
 #else
       //// New DRD ////
-      drd = new DoubleResetDetector(DRD_TIMEOUT, DRD_ADDRESS);
+      // drd = new DoubleResetDetector(DRD_TIMEOUT, DRD_ADDRESS);
 
       bool noConfigPortal = true;
 
-      if (drd->detectDoubleReset())
+      // if (drd->detectDoubleReset())
 #endif
-      {
-        Serial.println("##########################################");
-        Serial.println("# Multi or Double Reset Detected         #");
-        Serial.println("##########################################");
-        noConfigPortal = false;
-      }
+      // {
+      //   Serial.println("##########################################");
+      //   Serial.println("# Multi or Double Reset Detected         #");
+      //   Serial.println("##########################################");
+      //   noConfigPortal = false;
+      // }
 
       //// New DRD/MRD ////
 
@@ -868,7 +868,7 @@ class ESPAsync_WiFiManager_Lite
       // so that it can recognise when the timeout expires.
       // You can also call drd.stop() when you wish to no longer
       // consider the next reset as a double reset.
-      drd->loop();
+      // drd->loop();
       //// New DRD ////
 #endif
 
