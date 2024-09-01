@@ -60,7 +60,6 @@ ESPAsync_WiFiManager_Lite* ESPAsync_WiFiManager;
 #include <WiFi.h>
 
 // #include "jsonCommand.h"
-#include "jsonStatus.h"
 #include "ph5command.h"
 String mqttPrefix = F("ph5");
 WiFiClient espClient;
@@ -82,14 +81,6 @@ FastAccelStepper* stepperY = NULL;
 bool isRunningX = false;
 bool isRunningY = false;
 
-// Camera
-// #define CAMERA_FOCUS_PIN 32
-// #define CAMERA_TRIGGER_PIN 33
-// #include "camera.h"
-// Camera camera;
-// bool isFocusing = false;
-// bool isTriggering = false;
-
 // I2C
 #define I2C_SDA_PIN 14
 #define I2C_SCL_PIN 27
@@ -107,6 +98,7 @@ bool displayUpdateRequired = true;
 unsigned long displayLastUpdate = 0;
 
 // Status (MQTT)
+#include "jsonStatus.h"
 class StateTimer : public IntervalTimer {
   virtual void onTimer() {
     String tmp;
@@ -114,11 +106,6 @@ class StateTimer : public IntervalTimer {
     serialAndTelnet.print("[Status] Actor:");
     serialAndTelnet.println(tmp);
     mqtt.publish((mqttPrefix + "/actor").c_str(), tmp.c_str());
-
-    // JsonStatus::convert(camera, tmp);
-    // serialAndTelnet.print("[Status] Camera:");
-    // serialAndTelnet.println(tmp);
-    // mqtt.publish((mqttPrefix + "/camera").c_str(), tmp.c_str());
   }
 };
 
@@ -158,37 +145,10 @@ class BroadcastStatusTimer : public IntervalTimer {
     }
 
     UdpStatusMsg msg;
-    // msg.data.x = 123456;
-    // msg.data.y = 666;
-    // msg.data.active = 2;
     msg.data.x = stepperX->getCurrentPosition();
     msg.data.y = stepperY->getCurrentPosition();
     msg.data.active = stepperX->isRunning() | stepperY->isRunning() << 1;
 
-    // Serial.println("-----------------");
-    // for (uint8_t i = 0; i < sizeof(UdpStatusMsg); ++i) {
-    //   Serial.print(i);
-    //   Serial.print(": ");
-    //   const char* c = (const char*)&msg;
-    //   Serial.print(c[i]);
-    //   Serial.print("/");
-    //   Serial.print((uint8_t)c[i]);
-    //   Serial.print("/");
-    //   Serial.println(c[i], HEX);
-    // }
-    // Serial.println("-----------------");
-    // msg.x = 0;
-    // for (uint8_t i = 0; i < sizeof(UdpStatusMsg); ++i) {
-    //   Serial.print(i);
-    //   Serial.print(": ");
-    //   const char* c = (const char*)&msg;
-    //   Serial.print(c[i]);
-    //   Serial.print("/");
-    //   Serial.print((uint8_t)c[i]);
-    //   Serial.print("/");
-    //   Serial.println(c[i], HEX);
-    // }
-    // for(;;);
     if (sendBroadcastStatus) {
       udp.broadcastTo((uint8_t*)&msg, sizeof(UdpStatusMsg), broadcastPort);
     }
@@ -409,33 +369,6 @@ void processCommand(Ph5Command* cmd) {
       break;
     }
 
-      // case JsonCommand::FOCUS: {
-      //   zj_u32_t f;
-      //   f.uint32 = cmd.focus;
-      //   camera.startFocus(f);
-      //   isFocusing = true;
-      //   stateTimer.forceTrigger();
-      //   break;
-      // }
-      // case JsonCommand::TRIGGER: {
-      //   zj_u32_t t;
-      //   t.uint32 = cmd.trigger;
-      //   camera.startTrigger(t);
-      //   isTriggering = true;
-      //   stateTimer.forceTrigger();
-      //   break;
-      // }
-      // case JsonCommand::FOCUS_AND_TRIGGER: {
-      //   zj_u32_t f;
-      //   f.uint32 = cmd.focus;
-      //   zj_u32_t t;
-      //   t.uint32 = cmd.trigger;
-      //   camera.startShot(f, t);
-      //   isFocusing = true;
-      //   stateTimer.forceTrigger();
-      //   break;
-      // }
-
     case Ph5CommandType::SET_POS_X: {
       if (stepperX) {
         if (!stepperX->isRunning()) {
@@ -592,9 +525,6 @@ void wiFiEvent(WiFiEvent_t event) {
       break;
     case SYSTEM_EVENT_AP_STOP:
       serialAndTelnet.println("[-WiFi-] WiFi access point  stopped");
-      //      WiFi.mode( WIFI_OFF);
-      //      esp_sleep_enable_timer_wakeup( 1000000 * 2 ); // 1 second times how many seconds wanted
-      //      esp_deep_sleep_start();
       break;
     case SYSTEM_EVENT_AP_STACONNECTED:
       serialAndTelnet.println("[-WiFi-] Client connected");
@@ -778,29 +708,6 @@ void handleDisplay() {
     u8g2.setFont(u8g2_font_helvR08_tf);
     u8g2.print(stepperY->getCurrentPosition());
   }
-
-  // // Focus
-  // u8g2.setFont(u8g2_font_helvR10_tf);
-  // u8g2.setCursor(0, 20);
-  // if (camera.isFocusing()) {
-  //   u8g2.setForegroundColor(BLACK);
-  //   u8g2.setBackgroundColor(WHITE);
-  // } else {
-  //   u8g2.setForegroundColor(WHITE);
-  //   u8g2.setBackgroundColor(BLACK);
-  // }
-  // u8g2.print("F");
-
-  // // Trigger
-  // u8g2.setCursor(20, 40);
-  // if (camera.isTriggering()) {
-  //   u8g2.setForegroundColor(BLACK);
-  //   u8g2.setBackgroundColor(WHITE);
-  // } else {
-  //   u8g2.setForegroundColor(WHITE);
-  //   u8g2.setBackgroundColor(BLACK);
-  // }
-  // u8g2.print("T");
 
   // MQTT Connection
   // u8g2.setFont(u8g2_font_helvR08_tf);
@@ -1163,10 +1070,6 @@ void setup() {
     serialAndTelnet.println("[Stepper] Error: Stepper Y not initialized");
   }
 
-  // Camera
-  // serialAndTelnet.println("[APP] Initialize Camera");
-  // camera.setup(CAMERA_FOCUS_PIN, CAMERA_TRIGGER_PIN);
-
   // State publishing
   if (sendMqttStatus) {
     serialAndTelnet.println("[APP] State timer");
@@ -1267,14 +1170,6 @@ void loop() {
       displayUpdateRequired = true;
     }
   }
-
-  // if (camera.isFocusing() != isFocusing || camera.isTriggering() != isTriggering) {
-  //   stateTimer.forceTrigger();
-  //   isFocusing = camera.isFocusing();
-  //   isTriggering = camera.isTriggering();
-  //   displayUpdateRequired = true;
-  // }
-  // fastTimer |= camera.isActive();
 
   if (sendMqttStatus) {
     stateTimer.setPeriodMs(fastTimer ? mqttStatusSlowPeriodMs : mqttStatusFastPeriodMs);
